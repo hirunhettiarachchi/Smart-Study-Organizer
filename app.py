@@ -311,7 +311,7 @@ if "active_user" not in st.session_state:
 # no AI calls happen on this path; it just reads existing saved data.
 if st.query_params.get("view") == "parent":
     viewed_user = st.query_params.get("user", "")
-    apply_theme("dark")
+
     st.markdown("<h2 style='text-align:center;'>👀 Parent / Teacher View</h2>", unsafe_allow_html=True)
     users = st.session_state.all_data.get("users", {})
     if viewed_user not in users:
