@@ -1356,15 +1356,15 @@ def show_analytics():
 
 # PAGE ROUTING DICTIONARY WITH LABELS
 PAGES = {
-    "💡 Daily Facts": show_daily_facts,
-    "🗺️ Mindmap": show_mindmap,
-    "📝 Summarizer": show_summarizer,
-    "❓ MCQ Quiz": show_mcq_quiz,
-    "🧠 Math Solver": show_math_solver,
-    "🎴 Flashcards": show_flashcards,
-    "⏱️ Pomodoro": show_pomodoro,
-    "✍️ Scribble Pad": show_scribble_pad,
-    "📊 Analytics": show_analytics,
+    "💡": show_daily_facts,
+    "🗺️": show_mindmap,
+    "📝": show_summarizer,
+    "❓": show_mcq_quiz,
+    "🧠": show_math_solver,
+    "🎴": show_flashcards,
+    "⏱️": show_pomodoro,
+    "✍️": show_scribble_pad,
+    "📊": show_analytics,
 }
 
 # FLOATING DOCK RADIO SELECTION
