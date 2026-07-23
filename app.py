@@ -1,4 +1,3 @@
-
 import streamlit as st
 import time
 import math
@@ -398,44 +397,28 @@ def apply_theme(theme=None):
  
     :root {{ {root_vars} }}
  
-    html, body, .stApp, [class*="css"],
+    html, body, .stApp,
     h1, h2, h3, h4, h5, h6, p, span, label, button, input, textarea, select,
     div[data-testid="stMarkdownContainer"] * {{
         font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif !important;
     }}
  
-    /* ---------- Liquid backdrop: deep base + floating colour blobs ---------- */
+    /* ---------- Liquid backdrop: soft static colour wash, no filters/animation ---------- */
+    /* (A blurred, animated, full-viewport layer here can make some browsers/GPUs
+       stall and paint nothing at all — so this stays a plain, static gradient.) */
     .stApp {{
-        background: var(--bg);
-        color: var(--text);
-        position: relative;
-    }}
-    .stApp::before {{
-        content: "";
-        position: fixed;
-        inset: 0;
-        z-index: 0;
-        pointer-events: none;
         background:
-            radial-gradient(38vw 38vw at 12% 8%, rgba(124, 140, 255, 0.30), transparent 60%),
-            radial-gradient(34vw 34vw at 88% 22%, rgba(199, 125, 255, 0.24), transparent 60%),
-            radial-gradient(42vw 42vw at 25% 92%, rgba(56, 189, 248, 0.16), transparent 60%),
-            radial-gradient(30vw 30vw at 95% 90%, rgba(236, 72, 153, 0.14), transparent 60%);
-        filter: blur(10px);
-        animation: sso-drift 26s ease-in-out infinite alternate;
-    }}
-    @keyframes sso-drift {{
-        0%   {{ transform: translate3d(0, 0, 0) scale(1); }}
-        100% {{ transform: translate3d(-1.5%, 1.5%, 0) scale(1.06); }}
-    }}
-    @media (prefers-reduced-motion: reduce) {{
-        .stApp::before {{ animation: none; }}
+            radial-gradient(1200px 800px at 10% 0%, rgba(124, 140, 255, 0.16), transparent 55%),
+            radial-gradient(1000px 800px at 90% 15%, rgba(199, 125, 255, 0.13), transparent 55%),
+            radial-gradient(1200px 900px at 20% 100%, rgba(56, 189, 248, 0.10), transparent 55%),
+            var(--bg);
+        color: var(--text);
     }}
     [data-testid="stAppViewContainer"], [data-testid="stHeader"] {{ background: transparent; }}
     section[data-testid="stSidebar"] {{
         background: var(--sidebar-bg);
-        backdrop-filter: blur(28px) saturate(160%);
-        -webkit-backdrop-filter: blur(28px) saturate(160%);
+        backdrop-filter: blur(20px) saturate(150%);
+        -webkit-backdrop-filter: blur(20px) saturate(150%);
         border-right: 1px solid var(--border);
     }}
  
@@ -445,8 +428,6 @@ def apply_theme(theme=None):
         padding-top: 2rem !important;
         padding-left: 2rem !important;
         animation: sso-fade-in 0.35s ease;
-        position: relative;
-        z-index: 1;
     }}
     @keyframes sso-fade-in {{
         from {{ opacity: 0; transform: translateY(6px); }}
