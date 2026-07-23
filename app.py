@@ -393,14 +393,30 @@ def apply_theme(theme=None):
  
     st.markdown(f"""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
- 
-    :root {{ {root_vars} }}
- 
-    html, body, .stApp,
-    h1, h2, h3, h4, h5, h6, p, span, label, button, input, textarea, select,
-    div[data-testid="stMarkdownContainer"] * {{
-        font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif !important;
+/* 1. Import Google's Plus Jakarta Sans */
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+
+        :root {{ {root_vars} }}
+
+    /* 2. Apply font ONLY to main app content & sidebar text */
+    [data-testid="stMain"] p, 
+    [data-testid="stMain"] h1, 
+    [data-testid="stMain"] h2, 
+    [data-testid="stMain"] h3, 
+    [data-testid="stMain"] h4, 
+    [data-testid="stMain"] label, 
+    [data-testid="stMain"] input, 
+    [data-testid="stMain"] button,
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] label {{
+        font-family: 'Plus Jakarta Sans', sans-serif !important;
+    }}
+
+    /* 3. HARD RESET for Streamlit's Header Icons */
+    [data-testid="stHeader"] *, 
+    [data-testid="stAppHeader"] *,
+    header * {{
+        font-family: 'Material Symbols Rounded', 'Material Icons', sans-serif !important;
     }}
  
     /* ---------- Liquid backdrop: soft static colour wash, no filters/animation ---------- */
