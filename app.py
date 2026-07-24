@@ -551,13 +551,63 @@ def apply_theme(theme=None):
     /* ---------- Glass helper: frosted surface + top specular highlight ---------- */
     .profile-card, .streak-pill, .pomo-ring-inner, .flash-face,
     div[data-testid="stMetric"], div[data-testid="stExpander"],
-    div[data-testid="stForm"], .stTextInput > div, .stTextArea > textarea,
-    .stSelectbox > div, .stSlider, div[data-baseweb="select"] > div {{
+    div[data-testid="stForm"] {{
         background: var(--card-bg) !important;
         backdrop-filter: blur(22px) saturate(180%);
         -webkit-backdrop-filter: blur(22px) saturate(180%);
         border: 1px solid var(--border) !important;
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), var(--shadow);
+    }}
+
+    /* ---------- Inputs, selects, textareas, file uploader: same glass surface ---------- */
+    div[data-testid="stTextInput"] input,
+    div[data-testid="stNumberInput"] input,
+    div[data-testid="stTextArea"] textarea,
+    div[data-testid="stDateInput"] input,
+    div[data-testid="stSelectbox"] div[data-baseweb="select"] > div,
+    div[data-testid="stMultiSelect"] div[data-baseweb="select"] > div,
+    section[data-testid="stFileUploaderDropzone"],
+    section[data-testid="stFileUploadDropzone"] {{
+        background: var(--card-bg) !important;
+        backdrop-filter: blur(18px) saturate(180%) !important;
+        -webkit-backdrop-filter: blur(18px) saturate(180%) !important;
+        border: 1px solid var(--border) !important;
+        border-radius: 14px !important;
+        color: var(--text) !important;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
+    }}
+    div[data-testid="stTextInput"] input:focus,
+    div[data-testid="stNumberInput"] input:focus,
+    div[data-testid="stTextArea"] textarea:focus,
+    div[data-testid="stSelectbox"] div[data-baseweb="select"]:focus-within > div {{
+        border-color: var(--accent-1) !important;
+        box-shadow: 0 0 0 3px var(--accent-soft) !important;
+    }}
+
+    /* Selectbox / multiselect dropdown popover menu */
+    div[data-baseweb="popover"] div[data-baseweb="menu"] {{
+        background: var(--bg-elevated) !important;
+        backdrop-filter: blur(24px) saturate(180%) !important;
+        -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
+        border: 1px solid var(--border) !important;
+        border-radius: 14px !important;
+        box-shadow: var(--shadow) !important;
+    }}
+    div[data-baseweb="popover"] li, div[data-baseweb="popover"] li * {{
+        color: var(--text) !important;
+    }}
+    div[data-baseweb="popover"] li:hover {{
+        background: var(--accent-soft) !important;
+    }}
+
+    /* Sliders: glowing glass thumb + tinted track */
+    div[data-testid="stSlider"] [data-baseweb="slider"] > div:nth-child(2) {{
+        background: var(--track-bg) !important;
+    }}
+    div[data-testid="stSlider"] [role="slider"] {{
+        background: linear-gradient(135deg, var(--accent-1), var(--accent-2)) !important;
+        border: 2px solid rgba(255, 255, 255, 0.6) !important;
+        box-shadow: 0 0 0 4px var(--accent-soft), 0 2px 10px rgba(0, 0, 0, 0.4) !important;
     }}
 
     /* ---------- Floating dock navigation ---------- */
@@ -800,21 +850,51 @@ if st.session_state.active_user is None and is_google_auth_configured():
         if st.user.is_logged_in:
             google_email = (st.user.email or "").strip().lower()
             key, profile = find_account(google_email)
-            if profile is None:
-                display_name = st.user.name or google_email.split("@")[0]
-                profile = new_profile(display_name, "Grade 8", 13, "Prefer not to say")
-                profile["email"] = google_email
-                profile["auth_provider"] = "google"
-                key = google_email
-                st.session_state.all_data["users"][key] = profile
-                save_all_data(st.session_state.all_data)
-            st.session_state.active_user = key
-            st.session_state.auth_method = "google"
-            st.rerun()
+            if profile is not None:
+                st.session_state.active_user = key
+                st.session_state.auth_method = "google"
+                st.rerun()
+            else:
+                # First time this Google account has signed in — collect the
+                # same profile details a manual sign-up would ask for, rather
+                # than silently defaulting to Grade 8 / age 13.
+                st.session_state.google_pending_email = google_email
+                st.session_state.google_pending_name = st.user.name or google_email.split("@")[0]
     except Exception:
         pass  # st.user has no attributes until a login attempt has happened at least once
 
-if st.session_state.active_user is None:
+if st.session_state.active_user is None and st.session_state.get("google_pending_email"):
+    apply_theme()
+    st.markdown("<h2 style='text-align:center;'>👋 Almost there — tell us about yourself</h2>", unsafe_allow_html=True)
+    st.caption(f"Signed in with Google as {st.session_state.google_pending_email}")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        g_name = st.text_input("Your Name:", value=st.session_state.google_pending_name, key="g_onboard_name")
+        g_grade = st.selectbox("Grade:", [f"Grade {i}" for i in range(1, 14)], key="g_onboard_grade")
+    with col2:
+        g_age = st.number_input("Age:", min_value=5, max_value=18, value=13, key="g_onboard_age")
+        g_gender = st.selectbox("Gender:", ["Male", "Female", "Prefer not to say"], key="g_onboard_gender")
+
+    if st.button("Create your Profile 🚀", use_container_width=True, key="g_onboard_submit"):
+        clean_name = g_name.strip()
+        if not clean_name:
+            st.error("Please enter your name.")
+        else:
+            email = st.session_state.google_pending_email
+            profile = new_profile(clean_name, g_grade, g_age, g_gender)
+            profile["email"] = email
+            profile["auth_provider"] = "google"
+            st.session_state.all_data["users"][email] = profile
+            save_all_data(st.session_state.all_data)
+            st.session_state.active_user = email
+            st.session_state.auth_method = "google"
+            del st.session_state["google_pending_email"]
+            del st.session_state["google_pending_name"]
+            st.rerun()
+    st.stop()
+
+if st.session_state.active_user is None and not st.session_state.get("google_pending_email"):
     apply_theme()
     st.markdown("<h2 style='text-align:center;'>👋 Welcome to Smart Study Organizer Pro!</h2>", unsafe_allow_html=True)
 
