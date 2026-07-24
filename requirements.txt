@@ -3,3 +3,5 @@ pandas
 google-genai
 Pillow
 PyPDF2
+python-dotenv
+Authlib>=1.3.2

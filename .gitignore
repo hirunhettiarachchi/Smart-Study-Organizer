@@ -1,4 +1,5 @@
 .streamlit/secrets.toml
 study_organizer_data.json
+*.json
 __pycache__/
 *.pyc

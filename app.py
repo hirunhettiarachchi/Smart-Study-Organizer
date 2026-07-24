@@ -7,14 +7,24 @@ import ast
 import re
 import uuid
 import operator
+import hashlib
+import hmac
 from datetime import date, datetime, timedelta
 import pandas as pd
 from google import genai
 from PIL import Image
 import PyPDF2
 
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()  # loads variables from a .env file in the project folder, if one exists
+except ImportError:
+    pass  # python-dotenv not installed — .env files just won't be picked up; secrets.toml or a real env var still work
+
 # PAGE CONFIG
 st.set_page_config(page_title="Smart Study Organizer Pro", page_icon="🎓", layout="wide")
+
 
 DATA_FILE = "study_organizer_data.json"
 
@@ -104,6 +114,9 @@ def t(text):
 
 DEFAULT_PROFILE = {
     "user_name": "",
+    "email": "",
+    "password_hash": None,   # None = no password set (Google-only account, or legacy pre-auth profile)
+    "auth_provider": "password",  # "password" or "google"
     "user_grade": "Grade 8",
     "user_age": 13,
     "user_gender": "Prefer not to say",
@@ -181,7 +194,64 @@ def ensure_profile_shape(profile):
     profile.setdefault("theme", "dark")
     profile.setdefault("language", "en")
     profile.setdefault("flashcards", [])
+    profile.setdefault("email", "")
+    profile.setdefault("password_hash", None)
+    profile.setdefault("auth_provider", "password")
     return profile
+
+# ACCOUNT SECURITY
+# Passwords are hashed with PBKDF2-HMAC-SHA256 (stdlib only — no extra
+# dependency). This is a well-vetted, OWASP-recommended algorithm; the
+# iteration count below matches current OWASP guidance for SHA-256.
+PBKDF2_ITERATIONS = 260_000
+
+def hash_password(password: str) -> str:
+    salt = os.urandom(16)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, PBKDF2_ITERATIONS)
+    return f"{salt.hex()}${dk.hex()}"
+
+def verify_password(password: str, stored: str) -> bool:
+    try:
+        salt_hex, hash_hex = stored.split("$")
+        salt = bytes.fromhex(salt_hex)
+        expected = bytes.fromhex(hash_hex)
+        dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, PBKDF2_ITERATIONS)
+        return hmac.compare_digest(dk, expected)
+    except Exception:
+        return False
+
+def find_account(identifier: str):
+    """Look up a profile by username (dict key) or by email. Returns (key, profile) or (None, None)."""
+    identifier = (identifier or "").strip().lower()
+    if not identifier:
+        return None, None
+    users = st.session_state.all_data.get("users", {})
+    for key, profile in users.items():
+        if key.strip().lower() == identifier:
+            return key, profile
+        if profile.get("email", "").strip().lower() == identifier:
+            return key, profile
+    return None, None
+
+def is_google_auth_configured() -> bool:
+    try:
+        return bool(st.secrets.get("auth", {}).get("client_id"))
+    except Exception:
+        return False
+
+def login_rate_limited(identifier: str) -> bool:
+    """Very basic in-session brute-force slow-down: 5 failed attempts locks that
+    identifier out for the rest of the browser session. This is a light backstop,
+    not a substitute for real infra-level rate limiting on a public deployment."""
+    attempts = st.session_state.setdefault("login_attempts", {})
+    return attempts.get(identifier, 0) >= 5
+
+def record_failed_login(identifier: str):
+    attempts = st.session_state.setdefault("login_attempts", {})
+    attempts[identifier] = attempts.get(identifier, 0) + 1
+
+def clear_failed_logins(identifier: str):
+    st.session_state.setdefault("login_attempts", {}).pop(identifier, None)
 
 # GAMIFICATION ENGINE
 def level_for_xp(xp):
@@ -313,10 +383,17 @@ def save_current():
 
 # AI SETUP
 def get_api_key():
-    key = st.secrets.get("GEMINI_API_KEY") if hasattr(st, "secrets") else None
-    if not key:
-        key = os.environ.get("GEMINI_API_KEY")
-    return key
+    # 1) Streamlit secrets file: .streamlit/secrets.toml
+    try:
+        if hasattr(st, "secrets") and "GEMINI_API_KEY" in st.secrets:
+            return st.secrets["GEMINI_API_KEY"]
+    except Exception:
+        pass
+    # 2) A real environment variable (set in the shell, or via a .env file loaded above)
+    key = os.environ.get("GEMINI_API_KEY")
+    if key:
+        return key
+    return None
 
 @st.cache_resource(show_spinner=False)
 def get_client():
@@ -328,8 +405,15 @@ def get_client():
 def get_ai_response(prompt, image=None):
     client = get_client()
     if client is None:
-        return ("⚠️ API Key සොයාගත නොහැක. .streamlit/secrets.toml ගොනුවේ "
-                "GEMINI_API_KEY = \"your-key-here\" ලෙස එක් කරන්න.")
+        return (
+            "⚠️ **No Gemini API key found.** The app checked three places and found nothing:\n\n"
+            "1. `.streamlit/secrets.toml` in your project folder, containing a line: `GEMINI_API_KEY = \"your-key-here\"`\n"
+            "2. A `GEMINI_API_KEY` environment variable set in the terminal you launched the app from\n"
+            "3. A `.env` file in your project folder, containing a line: `GEMINI_API_KEY=your-key-here`\n\n"
+            "After adding the key with one of these methods, **fully stop and restart** `streamlit run app.py` — "
+            "it only reads the key once when the server starts, so a running app won't pick up a key you just added.\n\n"
+            "අවශ්‍ය නම්: ඉහත ක්‍රම 3න් එකකින් `GEMINI_API_KEY` එක එකතු කර, යෙදුම නවත්වා යළි ආරම්භ කරන්න."
+        )
     try:
         contents_list = [prompt]
         if image is not None:
@@ -340,7 +424,19 @@ def get_ai_response(prompt, image=None):
         )
         return response.text
     except Exception as e:
-        return f"ERROR: Please check your internet connection ({e})"
+        err_text = str(e)
+        if "401" in err_text or "UNAUTHENTICATED" in err_text or "ACCESS_TOKEN_TYPE_UNSUPPORTED" in err_text or "invalid_api_key" in err_text.lower():
+            return (
+                "⚠️ **Your API key was found, but Google rejected it (401/authentication error).** "
+                "This is a known issue in 2026: Google is migrating Gemini API keys from the old `AIza...` format "
+                "to a new `AQ....` \"auth key\" format, and some `google-genai` SDK versions don't authenticate the new "
+                "format correctly yet. If your key starts with `AQ.`, try:\n\n"
+                "1. Upgrade the SDK: run `pip install --upgrade google-genai` and fully restart the app.\n"
+                "2. If that doesn't help, generate a fresh key in Google AI Studio and try again — some existing `AQ.` keys "
+                "have had propagation issues.\n\n"
+                f"Raw error: {err_text}"
+            )
+        return f"ERROR: Please check your internet connection ({err_text})"
 
 def parse_quiz_json(raw_text):
     cleaned = raw_text.strip()
@@ -394,9 +490,9 @@ def apply_theme(theme=None):
     st.markdown(f"""
     <style>
     
-    :root {{ {root_vars} }}
-/* 1. Import Google's Plus Jakarta Sans */
-    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+
+  :root {{ {root_vars} }}
 
     /* 2. Apply font ONLY to main app content & sidebar text */
     [data-testid="stMain"] p, 
@@ -694,44 +790,125 @@ if st.query_params.get("view") == "parent":
 
 
 # LOGIN / PROFILE SELECTION SCREEN
+
+# If Google auth is configured and the user just completed the Google
+# redirect flow, st.user.is_logged_in will be true here. Find or create
+# their profile by email and log them straight in, skipping the form.
+
+if st.session_state.active_user is None and is_google_auth_configured():
+    try:
+        if st.user.is_logged_in:
+            google_email = (st.user.email or "").strip().lower()
+            key, profile = find_account(google_email)
+            if profile is None:
+                display_name = st.user.name or google_email.split("@")[0]
+                profile = new_profile(display_name, "Grade 8", 13, "Prefer not to say")
+                profile["email"] = google_email
+                profile["auth_provider"] = "google"
+                key = google_email
+                st.session_state.all_data["users"][key] = profile
+                save_all_data(st.session_state.all_data)
+            st.session_state.active_user = key
+            st.session_state.auth_method = "google"
+            st.rerun()
+    except Exception:
+        pass  # st.user has no attributes until a login attempt has happened at least once
+
 if st.session_state.active_user is None:
     apply_theme()
     st.markdown("<h2 style='text-align:center;'>👋 Welcome to Smart Study Organizer Pro!</h2>", unsafe_allow_html=True)
-    existing_users = list(st.session_state.all_data["users"].keys())
-    tab1, tab2 = st.tabs(["🙋 Existing Profile", "✨ New Profile"])
+
+    if is_google_auth_configured():
+        gcol1, gcol2, gcol3 = st.columns([1, 2, 1])
+        with gcol2:
+            if st.button("🔵 Continue with Google", use_container_width=True):
+                st.login()
+        st.markdown("<p style='text-align:center; color:var(--muted);'>— or use a password —</p>", unsafe_allow_html=True)
+
+    tab1, tab2 = st.tabs(["🙋 Log In", "✨ Sign Up"])
 
     with tab1:
-        if existing_users:
-            picked = st.selectbox("Please choose your profile:", existing_users)
-            if st.button("Enter the app ➡️", use_container_width=True):
-                st.session_state.all_data["users"][picked] = ensure_profile_shape(st.session_state.all_data["users"][picked])
-                st.session_state.active_user = picked
-                st.rerun()
-        else:
-            st.info("It looks like you haven't created an account yet. You can create one from the New Profile tab.")
+        login_id = st.text_input("Username or email:", key="login_id")
+        login_pw = st.text_input("Password:", type="password", key="login_pw")
+
+        if st.button("Log in ➡️", use_container_width=True):
+            identifier = login_id.strip().lower()
+            if login_rate_limited(identifier):
+                st.error("Too many failed attempts. Please wait and try again later.")
+            else:
+                key, profile = find_account(login_id)
+                if profile is None:
+                    st.error("No account found with that username or email.")
+                    record_failed_login(identifier)
+                elif profile.get("password_hash") is None:
+                    st.warning(
+                        "⚠️ This account hasn't been secured with a password yet "
+                        "(it predates the login system). Set one now to claim it — "
+                        "do this immediately if you plan to make the app public, since "
+                        "anyone could otherwise claim an unsecured account first."
+                    )
+                    new_pw = st.text_input("Set a password:", type="password", key="claim_pw")
+                    confirm_pw = st.text_input("Confirm password:", type="password", key="claim_pw2")
+                    if st.button("Secure this account", use_container_width=True, key="claim_btn"):
+                        if len(new_pw) < 8:
+                            st.error("Password must be at least 8 characters.")
+                        elif new_pw != confirm_pw:
+                            st.error("Passwords don't match.")
+                        else:
+                            profile["password_hash"] = hash_password(new_pw)
+                            save_all_data(st.session_state.all_data)
+                            st.session_state.active_user = key
+                            st.session_state.auth_method = "password"
+                            st.rerun()
+                elif verify_password(login_pw, profile["password_hash"]):
+                    clear_failed_logins(identifier)
+                    st.session_state.active_user = key
+                    st.session_state.auth_method = "password"
+                    st.rerun()
+                else:
+                    st.error("Incorrect password.")
+                    record_failed_login(identifier)
 
     with tab2:
         col1, col2 = st.columns(2)
         with col1:
-            name_input = st.text_input("Your Name:")
+            name_input = st.text_input("Your Name:", key="signup_name")
+            email_input = st.text_input("Email:", key="signup_email")
             grade_input = st.selectbox("Grade:", [f"Grade {i}" for i in range(1, 14)])
         with col2:
             age_input = st.number_input("Age:", min_value=5, max_value=18, value=13)
             gender_input = st.selectbox("Gender:", ["Male", "Female", "Prefer not to say"])
+            pw_input = st.text_input("Password:", type="password", key="signup_pw")
+            pw_confirm = st.text_input("Confirm password:", type="password", key="signup_pw2")
 
         if st.button("Create your Profile 🚀", use_container_width=True):
-            if not name_input.strip():
-                st.error("Please enter your name")
-            elif name_input.strip() in existing_users:
-                st.error("This name already exists. Please try another name.")
+            clean_name = name_input.strip()
+            clean_email = email_input.strip().lower()
+            existing_key, existing_profile = find_account(clean_name)
+            existing_by_email, _ = find_account(clean_email) if clean_email else (None, None)
+            if not clean_name:
+                st.error("Please enter your name.")
+            elif not clean_email or "@" not in clean_email:
+                st.error("Please enter a valid email address.")
+            elif existing_profile is not None or existing_by_email is not None:
+                st.error("That name or email is already registered. Try logging in instead.")
+            elif len(pw_input) < 8:
+                st.error("Password must be at least 8 characters.")
+            elif pw_input != pw_confirm:
+                st.error("Passwords don't match.")
             else:
-                profile = new_profile(name_input.strip(), grade_input, age_input, gender_input)
-                st.session_state.all_data["users"][name_input.strip()] = profile
+                profile = new_profile(clean_name, grade_input, age_input, gender_input)
+                profile["email"] = clean_email
+                profile["password_hash"] = hash_password(pw_input)
+                profile["auth_provider"] = "password"
+                st.session_state.all_data["users"][clean_name] = profile
                 save_all_data(st.session_state.all_data)
-                st.session_state.active_user = name_input.strip()
+                st.session_state.active_user = clean_name
+                st.session_state.auth_method = "password"
                 st.rerun()
 
     st.stop()
+
 
 # PERSONALIZED CONTEXT
 user_info = current_profile()
@@ -843,7 +1020,13 @@ def render_sidebar():
             st.caption("Append this to the app's web address in your browser and share that full link.")
 
         if st.button(t("🔄 Switch Profile"), use_container_width=True):
+            if st.session_state.get("auth_method") == "google":
+                try:
+                    st.logout()
+                except Exception:
+                    pass
             st.session_state.active_user = None
+            st.session_state.auth_method = None
             st.rerun()
 
 # Invoking sidebar rendering
