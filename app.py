@@ -1745,10 +1745,6 @@ PAGES = {
     "📊": show_analytics,
 }
 
-# FLOATING DOCK RADIO SELECTION
-# Reserve room on the right for the fixed dock — only on these post-login
-# pages (the login/parent-view screens don't have the dock, so they stay
-# full-width instead of being squeezed into a narrow column).
 st.markdown("""
 <style>
 [data-testid="stMainBlockContainer"] { padding-right: 240px !important; }
