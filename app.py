@@ -9,7 +9,9 @@ import uuid
 import operator
 import hashlib
 import hmac
-from datetime import date, datetime, timedelta
+import sqlite3
+import threading
+from datetime import date, datetime, timedelta, timezone
 import pandas as pd
 from google import genai
 from PIL import Image
@@ -26,7 +28,8 @@ except ImportError:
 st.set_page_config(page_title="Smart Study Organizer Pro", page_icon="🎓", layout="wide")
 
 
-DATA_FILE = "study_organizer_data.json"
+DB_FILE = "study_organizer.db"
+LEGACY_JSON_FILE = "study_organizer_data.json"  # only read once, to migrate old data in
 
 # Gamification constants
 XP_PER_LEVEL = 100
@@ -155,21 +158,109 @@ def extract_text_from_pdf(pdf_file):
         return f"Error extracting text from PDF: {e}"
 
 # DATA PERSISTENCE
+#
+# Previously this app kept everyone's data in one big JSON file and
+# rewrote the ENTIRE file on every save. That has two real problems under
+# concurrent use: (1) a crash mid-write can corrupt the whole file for
+# every user, and (2) if two people are using the app at the same time,
+# whichever one saves last silently overwrites the other's changes — even
+# to a completely different profile — because each save dumps that
+# session's whole in-memory snapshot, stale bits and all.
+#
+# SQLite (one row per user, in WAL mode) fixes both: writes are atomic
+# and scoped to a single row, so saving your profile can never clobber
+# someone else's, and a crash mid-write can't corrupt other people's data.
+_db_lock = threading.Lock()
+
+def get_db_connection():
+    conn = sqlite3.connect(DB_FILE, check_same_thread=False, timeout=10)
+    conn.execute("PRAGMA journal_mode=WAL;")  # lets multiple users read/write concurrently and safely
+    return conn
+
+def init_db():
+    conn = get_db_connection()
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS profiles (
+                username TEXT PRIMARY KEY,
+                email TEXT,
+                data TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+        conn.commit()
+    finally:
+        conn.close()
+
+def _migrate_legacy_json_if_needed():
+    """One-time import: if an old study_organizer_data.json exists and the
+    new database is still empty, pull its profiles in so nobody's existing
+    data gets lost by upgrading. Safe to leave in place permanently — it
+    only ever runs when the database has zero rows."""
+    if not os.path.exists(LEGACY_JSON_FILE):
+        return
+    conn = get_db_connection()
+    try:
+        count = conn.execute("SELECT COUNT(*) FROM profiles").fetchone()[0]
+        if count > 0:
+            return
+        with open(LEGACY_JSON_FILE, "r", encoding="utf-8") as f:
+            legacy = json.load(f)
+        users = legacy.get("users", {})
+        if not users:
+            return
+        now = datetime.now(timezone.utc).isoformat()
+        with _db_lock:
+            for username, profile in users.items():
+                conn.execute(
+                    "INSERT OR IGNORE INTO profiles (username, email, data, updated_at) VALUES (?, ?, ?, ?)",
+                    (username, profile.get("email", ""), json.dumps(profile, ensure_ascii=False), now),
+                )
+            conn.commit()
+    except Exception:
+        pass  # if the legacy file is unreadable, just start fresh in the new database
+    finally:
+        conn.close()
+
 def load_all_data():
-    if os.path.exists(DATA_FILE):
+    init_db()
+    _migrate_legacy_json_if_needed()
+    conn = get_db_connection()
+    try:
+        rows = conn.execute("SELECT username, data FROM profiles").fetchall()
+    finally:
+        conn.close()
+    users = {}
+    for username, data_json in rows:
         try:
-            with open(DATA_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if "users" not in data or not isinstance(data["users"], dict):
-                    data["users"] = {}
-                return data
+            users[username] = json.loads(data_json)
         except Exception:
-            return {"users": {}}
-    return {"users": {}}
+            continue  # skip a corrupted row rather than crashing the whole app
+    return {"users": users}
+
+def save_profile(key, profile):
+    """Atomically write ONE user's row. Always prefer this over save_all_data —
+    it's what makes concurrent use safe, since it can never touch anyone
+    else's data."""
+    conn = get_db_connection()
+    try:
+        with _db_lock:
+            conn.execute(
+                "INSERT INTO profiles (username, email, data, updated_at) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(username) DO UPDATE SET email=excluded.email, data=excluded.data, updated_at=excluded.updated_at",
+                (key, profile.get("email", ""), json.dumps(profile, ensure_ascii=False), datetime.now(timezone.utc).isoformat()),
+            )
+            conn.commit()
+    finally:
+        conn.close()
 
 def save_all_data(data):
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
+    """Kept for any leftover call sites, but writes every row from this
+    session's in-memory snapshot — prefer save_profile() for anything that
+    only touches one user, since that can't clobber concurrent changes to
+    other profiles the way a wholesale rewrite can."""
+    for key, profile in data.get("users", {}).items():
+        save_profile(key, profile)
 
 def new_profile(name, grade, age, gender):
     profile = json.loads(json.dumps(DEFAULT_PROFILE))
@@ -379,7 +470,10 @@ def current_profile():
     return st.session_state.all_data["users"][st.session_state.active_user]
 
 def save_current():
-    save_all_data(st.session_state.all_data)
+    key = st.session_state.active_user
+    users = st.session_state.all_data.get("users", {})
+    if key and key in users:
+        save_profile(key, users[key])
 
 # AI SETUP
 def get_api_key():
@@ -886,7 +980,7 @@ if st.session_state.active_user is None and st.session_state.get("google_pending
             profile["email"] = email
             profile["auth_provider"] = "google"
             st.session_state.all_data["users"][email] = profile
-            save_all_data(st.session_state.all_data)
+            save_profile(email, profile)
             st.session_state.active_user = email
             st.session_state.auth_method = "google"
             del st.session_state["google_pending_email"]
@@ -936,7 +1030,7 @@ if st.session_state.active_user is None and not st.session_state.get("google_pen
                             st.error("Passwords don't match.")
                         else:
                             profile["password_hash"] = hash_password(new_pw)
-                            save_all_data(st.session_state.all_data)
+                            save_profile(key, profile)
                             st.session_state.active_user = key
                             st.session_state.auth_method = "password"
                             st.rerun()
@@ -982,7 +1076,7 @@ if st.session_state.active_user is None and not st.session_state.get("google_pen
                 profile["password_hash"] = hash_password(pw_input)
                 profile["auth_provider"] = "password"
                 st.session_state.all_data["users"][clean_name] = profile
-                save_all_data(st.session_state.all_data)
+                save_profile(clean_name, profile)
                 st.session_state.active_user = clean_name
                 st.session_state.auth_method = "password"
                 st.rerun()
