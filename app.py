@@ -11,6 +11,7 @@ import hashlib
 import hmac
 import sqlite3
 import threading
+import urllib.parse
 from datetime import date, datetime, timedelta, timezone
 import pandas as pd
 from google import genai
@@ -1190,7 +1191,8 @@ def render_sidebar():
 
         with st.expander("🔗 Parent / Teacher View"):
             st.caption("Share this with a parent or teacher for a read-only progress summary — no login, no editing.")
-            st.code(f"?view=parent&user={profile['user_name']}", language=None)
+            encoded_key = urllib.parse.quote(st.session_state.active_user, safe="")
+            st.code(f"?view=parent&user={encoded_key}", language=None)
             st.caption("Append this to the app's web address in your browser and share that full link.")
 
         if st.button(t("🔄 Switch Profile"), use_container_width=True):
@@ -1745,6 +1747,10 @@ PAGES = {
     "📊": show_analytics,
 }
 
+# FLOATING DOCK RADIO SELECTION
+# Reserve room on the right for the fixed dock — only on these post-login
+# pages (the login/parent-view screens don't have the dock, so they stay
+# full-width instead of being squeezed into a narrow column).
 st.markdown("""
 <style>
 [data-testid="stMainBlockContainer"] { padding-right: 240px !important; }
