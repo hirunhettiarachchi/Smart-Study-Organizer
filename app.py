@@ -1115,13 +1115,25 @@ language_instruction = (
 # introduces content beyond what the student's grade actually covers.
 # Deliberately NOT used for Daily Facts, which is meant to explore general
 # knowledge beyond the syllabus.
+#
+# NOTE: this used to name all five tools in one sentence (e.g. "Note
+# Summarizer, MindMap Generator, AI MCQ Quiz, ... MUST strictly align...").
+# Because that same combined sentence got prepended to every single prompt,
+# the model would sometimes read it as a checklist of things to produce —
+# e.g. asking for a mindmap and getting a summary and quiz questions bolted
+# on too. The fix is to explicitly tell it to do ONLY the one task in the
+# actual request, and phrase the syllabus rule generically instead of by
+# listing every tool name.
 age_context = (
     f"The user is {user_age} years old in {user_grade} in Sri Lanka. "
-    "CRITICAL RULE: Note Summarizer, MindMap Generator, AI MCQ Quiz, Math Problem Solver, and FlashCards MUST strictly align "
-    "with the Sri Lankan local school syllabus for the user's grade — not above it, not below it. Use valid sources "
-    "(e.g. edupub.gov.lk, dpeducation.lk, e-thaksalawa.moe.gov.lk). Do NOT introduce any concept, term, formula, or vocabulary "
-    "that is not part of this grade's official syllabus, even if it is technically related or commonly taught in other "
-    "countries or exam systems. If a topic the user asks about is normally taught at a higher grade, simplify it down to what "
+    "CRITICAL RULE: Respond ONLY to the exact task described in this request, and produce ONLY that one kind of "
+    "output. Do not add a summary, quiz questions, flashcards, a mindmap, or any other feature's output unless "
+    "that specific feature is what this request is actually asking for. "
+    "Whatever this one task is, it MUST strictly align with the Sri Lankan local school syllabus for the user's "
+    "grade — not above it, not below it. Use valid sources (e.g. edupub.gov.lk, dpeducation.lk, "
+    "e-thaksalawa.moe.gov.lk). Do NOT introduce any concept, term, formula, or vocabulary that is not part of "
+    "this grade's official syllabus, even if it is technically related or commonly taught in other countries or "
+    "exam systems. If a topic the user asks about is normally taught at a higher grade, simplify it down to what "
     "is appropriate for this grade rather than teaching the advanced version. "
     "Keep explanations beginner-friendly, clean, and engaging. " + language_instruction
 )
