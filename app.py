@@ -1110,39 +1110,92 @@ language_instruction = (
     "using vocabulary and sentence structure appropriate for the student's age and grade."
 )
 
-# Strict syllabus-bounded context: used for every study/learning module
-# (Mindmap, Summarizer, MCQ Quiz, Math Solver, Flashcards) so the AI never
-# introduces content beyond what the student's grade actually covers.
-# Deliberately NOT used for Daily Facts, which is meant to explore general
-# knowledge beyond the syllabus.
+# PER-FEATURE PROMPT BUILDERS
 #
-# NOTE: this used to name all five tools in one sentence (e.g. "Note
-# Summarizer, MindMap Generator, AI MCQ Quiz, ... MUST strictly align...").
-# Because that same combined sentence got prepended to every single prompt,
-# the model would sometimes read it as a checklist of things to produce —
-# e.g. asking for a mindmap and getting a summary and quiz questions bolted
-# on too. The fix is to explicitly tell it to do ONLY the one task in the
-# actual request, and phrase the syllabus rule generically instead of by
-# listing every tool name.
-age_context = (
-    f"The user is {user_age} years old in {user_grade} in Sri Lanka. "
-    "CRITICAL RULE: Respond ONLY to the exact task described in this request, and produce ONLY that one kind of "
-    "output. Do not add a summary, quiz questions, flashcards, a mindmap, or any other feature's output unless "
-    "that specific feature is what this request is actually asking for. "
-    "Whatever this one task is, it MUST strictly align with the Sri Lankan local school syllabus for the user's "
-    "grade — not above it, not below it. Use valid sources (e.g. edupub.gov.lk, dpeducation.lk, "
-    "e-thaksalawa.moe.gov.lk). Do NOT introduce any concept, term, formula, or vocabulary that is not part of "
-    "this grade's official syllabus, even if it is technically related or commonly taught in other countries or "
-    "exam systems. If a topic the user asks about is normally taught at a higher grade, simplify it down to what "
-    "is appropriate for this grade rather than teaching the advanced version. "
-    "Keep explanations beginner-friendly, clean, and engaging. " + language_instruction
-)
+# Previously there was ONE shared "age_context" string, prepended as-is to
+# every AI call, that named all five study tools in a single sentence
+# ("Note Summarizer, MindMap Generator, AI MCQ Quiz, ... MUST strictly
+# align..."). Because that exact sentence went out with every request, the
+# model would sometimes treat it as a checklist and bolt on a summary, quiz
+# questions, etc. to whatever was actually asked for.
+#
+# Each feature now gets its own dedicated prompt-builder function below.
+# They share only a small, parameterized syllabus/single-task notice (never
+# a paragraph naming other tools), and each one explicitly states which one
+# output is wanted and lists the others it must NOT produce.
 
-# Lighter context for Daily Facts only — general knowledge, not syllabus-bound.
-daily_facts_context = (
-    f"The user is {user_age} years old in {user_grade} in Sri Lanka. "
-    "Keep explanations beginner-friendly, clean, and engaging. " + language_instruction
-)
+def _syllabus_notice(task_name):
+    """Syllabus + single-task guard, parameterized per feature. Reused across
+    builders so the wording stays consistent, but every call site fills in
+    its OWN task name — never a list of other tools."""
+    return (
+        f"CRITICAL RULE: This request is for {task_name} ONLY — produce nothing else. Do not add a summary, quiz "
+        f"questions, flashcards, a mindmap, or any other feature's output; only the {task_name} is wanted. "
+        "This content MUST strictly align with the Sri Lankan local school syllabus for the user's grade — not "
+        "above it, not below it. Use valid sources (e.g. edupub.gov.lk, dpeducation.lk, e-thaksalawa.moe.gov.lk). "
+        "Do NOT introduce any concept, term, formula, or vocabulary that is not part of this grade's official "
+        "syllabus, even if it is technically related or commonly taught in other countries or exam systems. If a "
+        "topic is normally taught at a higher grade, simplify it down to what is appropriate for this grade rather "
+        "than teaching the advanced version. Keep explanations beginner-friendly, clean, and engaging."
+    )
+
+def _who_line():
+    return f"The user is {user_age} years old in {user_grade} in Sri Lanka."
+
+def build_mindmap_prompt(content):
+    return (
+        f"{_who_line()} {_syllabus_notice('a mindmap')} {language_instruction} "
+        "Based on the following content, generate ONLY a clear, logical, structured text-based mindmap. Format it "
+        "using clean nested markdown bullet points, extremely intuitive for a beginner to study. "
+        f"Content: {content}"
+    )
+
+def build_summarizer_prompt(notes_text):
+    return (
+        f"{_who_line()} {_syllabus_notice('a note summary')} {language_instruction} "
+        f"Summarize these notes clearly in bullet points ONLY. Notes: {notes_text}. Explain it simply so a "
+        "beginner can master it."
+    )
+
+def build_quiz_prompt(subject, difficulty, num_questions, content):
+    return (
+        f"{_who_line()} {_syllabus_notice('a multiple-choice quiz')} {language_instruction} "
+        f"Subject: {subject}. Difficulty: {difficulty}. Based on the topic/image/document, generate ONLY exactly "
+        f"{num_questions} multiple choice questions. Return ONLY a raw JSON array of exactly {num_questions} "
+        "objects, each with keys: 'question', 'A', 'B', 'C', 'D', 'correct' (one of 'A'/'B'/'C'/'D'). No "
+        f"explanation outside the JSON. Topic/Content: {content}"
+    )
+
+def build_math_prompt(math_query):
+    return (
+        f"{_who_line()} {_syllabus_notice('a step-by-step math solution')} {language_instruction} "
+        f"Solve ONLY this one math problem step-by-step: {math_query}. Do NOT just give the final answer. Act "
+        "like a friendly tutor teaching a beginner. Break down every step clearly."
+    )
+
+def build_flashcards_prompt(subject, topic, count):
+    return (
+        f"{_who_line()} {_syllabus_notice('flashcards')} {language_instruction} "
+        f"Subject: {subject}. Create ONLY exactly {count} flashcards for the topic '{topic}'. Return ONLY a raw "
+        f"JSON array of exactly {count} objects, each with keys 'front' (a short question or term) and 'back' "
+        "(a concise, clear answer/definition). No explanation outside the JSON."
+    )
+
+def build_goal_tasks_prompt(goal):
+    return (
+        f"{_who_line()} {_syllabus_notice('a short study task list')} {language_instruction} "
+        f"Break down ONLY this one study goal into 4 short actionable tasks. Provide only the tasks, without "
+        f"numbers, one per line:\n{goal}"
+    )
+
+def build_daily_fact_prompt():
+    # Deliberately NOT syllabus-bound — Daily Facts intentionally explores
+    # general knowledge beyond the grade curriculum.
+    return (
+        f"{_who_line()} {language_instruction} "
+        "Tell ONLY one amazing, mind-blowing, yet easy-to-understand science or computer technology fact — no "
+        "summary, quiz, mindmap, or flashcards. Explain it in 3 clear bullet points."
+    )
 
 
 # DYNAMIC SIDEBAR RENDERER
@@ -1229,7 +1282,7 @@ def show_daily_facts():
 
     if st.button("Get a new Fact 🧠") or need_new:
         with st.spinner("Your fact is being retrieved by AI..."):
-            prompt = f"{daily_facts_context} Tell an amazing, mind-blowing, yet easy-to-understand science or computer technology fact. Explain it in 3 clear bullet points."
+            prompt = build_daily_fact_prompt()
             st.session_state.daily_fact = get_ai_response(prompt)
             st.session_state.daily_fact_date = today_str
 
@@ -1254,11 +1307,7 @@ def show_mindmap():
                     else:
                         img = Image.open(mm_file)
 
-                prompt = (
-                    f"{age_context} Based on the following content, generate a clear, logical, and structured text-based Mindmap. "
-                    "Format the Mindmap using clean nested markdown bullet points. Make it extremely intuitive for a beginner to study. "
-                    f"Content: {extracted_content}"
-                )
+                prompt = build_mindmap_prompt(extracted_content)
                 
                 mm_output = get_ai_response(prompt, image=img)
                 st.success("Your Mindmap is Ready:")
@@ -1290,7 +1339,7 @@ def show_summarizer():
         if uploaded_file or user_note:
             with st.spinner("Your note is being summarized by AI..."):
                 combined_text = user_note + "\n" + pdf_text
-                prompt = f"{age_context} Summarize these notes clearly in bullet points. Notes: {combined_text}. Explain it simply so a beginner can master it."
+                prompt = build_summarizer_prompt(combined_text)
                 output = get_ai_response(prompt, image=img)
                 st.success("Here is the Summary:")
                 st.write(output)
@@ -1326,12 +1375,9 @@ def show_mcq_quiz():
         if q_file or topic:
             with st.spinner(f"{num_questions} questions are being created by AI..."):
                 combined_context = (topic or "") + "\n" + pdf_text
-                prompt = (
-                    f"{age_context} Subject: {subject}. Difficulty: {difficulty}. "
-                    f"Based on the topic/image/document, generate exactly {num_questions} multiple choice questions. "
-                    f"Return ONLY a raw JSON array of exactly {num_questions} objects, each with keys: "
-                    "'question', 'A', 'B', 'C', 'D', 'correct' (one of 'A'/'B'/'C'/'D'). "
-                    "No explanation outside the JSON. Topic/Content: " + (combined_context if combined_context.strip() else "see attached image")
+                prompt = build_quiz_prompt(
+                    subject, difficulty, num_questions,
+                    combined_context if combined_context.strip() else "see attached image"
                 )
                 raw_json = get_ai_response(prompt, image=q_img)
                 try:
@@ -1412,11 +1458,7 @@ def show_math_solver():
     if st.button("Solve problem 🧮"):
         if math_img or math_query:
             with st.spinner("Your question is being solved by AI..."):
-                prompt = (
-                    f"{age_context} Solve this math problem step-by-step: {math_query}. "
-                    "Do NOT just give the final answer. Act like a friendly tutor teaching a beginner. "
-                    "Break down every step clearly."
-                )
+                prompt = build_math_prompt(math_query)
                 math_solution = get_ai_response(prompt, image=math_img)
                 st.success("Here is how to solve your question:")
                 st.write(math_solution)
@@ -1493,12 +1535,7 @@ def show_flashcards():
         if st.button("✨ Generate Flashcards with AI"):
             if gen_topic:
                 with st.spinner(f"Creating {gen_count} flashcards..."):
-                    prompt = (
-                        f"{age_context} Subject: {gen_subject}. Create exactly {gen_count} flashcards for the topic "
-                        f"'{gen_topic}'. Return ONLY a raw JSON array of exactly {gen_count} objects, each with keys "
-                        "'front' (a short question or term) and 'back' (a concise, clear answer/definition). "
-                        "No explanation outside the JSON."
-                    )
+                    prompt = build_flashcards_prompt(gen_subject, gen_topic, gen_count)
                     raw_json = get_ai_response(prompt)
                     try:
                         parsed = parse_quiz_json(raw_json)
@@ -1549,7 +1586,7 @@ def show_pomodoro():
         if st.button("Make Your Task List 📋"):
             if goal:
                 with st.spinner("Your task list is being created by AI..."):
-                    prompt = f"{age_context} Break down this study goal into 4 short actionable tasks. Provide only tasks without numbers, one per line:\n{goal}"
+                    prompt = build_goal_tasks_prompt(goal)
                     ai_tasks = get_ai_response(prompt).split("\n")
                     profile["todo_list"] = [t.strip("-• ").strip() for t in ai_tasks if t.strip()]
                     add_xp(profile, XP_REWARDS["task_list_created"], "task_list_created")
