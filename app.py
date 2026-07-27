@@ -1661,7 +1661,9 @@ def show_home():
             "⚙️": "Settings"
         }
         st.info(f"🔁 Continue with **{feature_names.get(last_feature, 'Daily Facts')}**")
-        if st.button("↩️ Resume", use_container_width=True):
+        
+        # FIX: Only update nav_choice, not nav_radio
+        if st.button("↩️ Resume", use_container_width=True, key="resume_button"):
             st.session_state["nav_choice"] = last_feature
             st.rerun()
     
@@ -3294,19 +3296,30 @@ if "nav_choice" not in st.session_state:
     last_feature = profile.get("last_feature_used", "🏠")
     st.session_state["nav_choice"] = last_feature if last_feature in PAGES else "🏠"
 
+# Define callback for navigation changes
+def on_nav_change():
+    """Callback when navigation changes via radio"""
+    # The radio value is automatically in st.session_state["nav_radio"]
+    # We just need to update nav_choice
+    if "nav_radio" in st.session_state:
+        new_choice = st.session_state["nav_radio"]
+        if new_choice != st.session_state.get("nav_choice"):
+            st.session_state["nav_choice"] = new_choice
+
+# Use a container with a unique key for the navigation
 with st.container(key="nav_dock"):
+    # Get the current index
+    current_index = nav_options.index(st.session_state["nav_choice"])
+    
     choice = st.radio(
         "Navigation",
         options=nav_options,
         horizontal=True,
         label_visibility="collapsed",
         key="nav_radio",
-        index=nav_options.index(st.session_state["nav_choice"])
+        index=current_index,  # Use the index directly
+        on_change=on_nav_change
     )
-    
-    if choice != st.session_state["nav_choice"]:
-        st.session_state["nav_choice"] = choice
-        st.rerun()
 
 # Add tooltips using CSS
 st.markdown("""
