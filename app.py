@@ -3234,6 +3234,17 @@ def show_settings():
         col2.metric("📝 Notes", total_notes)
         col3.metric("❓ Quizzes Taken", total_quizzes)
 
+# Add this anywhere in your main app after login
+with st.sidebar:
+    st.markdown("---")
+    st.subheader("🔗 Parent / Teacher View")
+    st.caption("Share this link for a read-only progress summary:")
+    encoded_key = urllib.parse.quote(st.session_state.active_user, safe="")
+    full_url = f"{st.get_option('server.baseUrlPath') or 'https://smart-study-organizer.streamlit.app'}?view=parent&user={encoded_key}"
+    st.code(full_url, language=None)
+    st.caption("No login required - parents/teachers can see your progress.")
+    st.markdown("---")
+
 # PAGE ROUTING DICTIONARY WITH LABELS
 PAGES = {
     "🏠": show_home,
