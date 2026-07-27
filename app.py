@@ -1,3 +1,5 @@
+# app.py - Smart Study Organizer Pro with all enhancements
+
 import streamlit as st
 import time
 import math
@@ -21,16 +23,16 @@ import PyPDF2
 
 try:
     from dotenv import load_dotenv
-    load_dotenv()  # loads variables from a .env file in the project folder, if one exists
+    load_dotenv()
 except ImportError:
-    pass  # python-dotenv not installed — .env files just won't be picked up; secrets.toml or a real env var still work
+    pass
 
 # PAGE CONFIG
 st.set_page_config(page_title="Smart Study Organizer Pro", page_icon="🎓", layout="wide")
 
 
 DB_FILE = "study_organizer.db"
-LEGACY_JSON_FILE = "study_organizer_data.json"  # only read once, to migrate old data in
+LEGACY_JSON_FILE = "study_organizer_data.json"
 
 # Gamification constants
 XP_PER_LEVEL = 100
@@ -46,24 +48,21 @@ XP_REWARDS = {
 }
 
 BADGES = {
-    "first_steps":      {"label": "🌱 First Steps",        "desc": "Completed your first quiz"},
-    "quiz_5":           {"label": "📚 Quiz Regular",        "desc": "Completed 5 quizzes"},
-    "quiz_20":          {"label": "🏆 Quiz Master",         "desc": "Completed 20 quizzes"},
-    "perfect_score":    {"label": "💯 Perfectionist",       "desc": "Got a perfect quiz score"},
-    "pomodoro_5":       {"label": "🍅 Focus Builder",       "desc": "Finished 5 Pomodoro sessions"},
-    "pomodoro_25":      {"label": "🔥 Deep Work Pro",       "desc": "Finished 25 Pomodoro sessions"},
-    "streak_3":         {"label": "⚡ 3-Day Streak",        "desc": "Studied 3 days in a row"},
-    "streak_7":         {"label": "🌟 7-Day Streak",        "desc": "Studied 7 days in a row"},
-    "streak_30":        {"label": "👑 30-Day Streak",       "desc": "Studied 30 days in a row"},
-    "flashcard_10":     {"label": "🧠 Card Crusher",        "desc": "Reviewed 10 flashcards"},
-    "level_5":          {"label": "🚀 Rising Star",         "desc": "Reached Level 5"},
-    "level_10":         {"label": "🌌 Study Legend",        "desc": "Reached Level 10"},
+    "first_steps":      {"label": "🌱 First Steps",        "desc": "Completed your first quiz", "icon": "🌱"},
+    "quiz_5":           {"label": "📚 Quiz Regular",        "desc": "Completed 5 quizzes", "icon": "📚"},
+    "quiz_20":          {"label": "🏆 Quiz Master",         "desc": "Completed 20 quizzes", "icon": "🏆"},
+    "perfect_score":    {"label": "💯 Perfectionist",       "desc": "Got a perfect quiz score", "icon": "💯"},
+    "pomodoro_5":       {"label": "🍅 Focus Builder",       "desc": "Finished 5 Pomodoro sessions", "icon": "🍅"},
+    "pomodoro_25":      {"label": "🔥 Deep Work Pro",       "desc": "Finished 25 Pomodoro sessions", "icon": "🔥"},
+    "streak_3":         {"label": "⚡ 3-Day Streak",        "desc": "Studied 3 days in a row", "icon": "⚡"},
+    "streak_7":         {"label": "🌟 7-Day Streak",        "desc": "Studied 7 days in a row", "icon": "🌟"},
+    "streak_30":        {"label": "👑 30-Day Streak",       "desc": "Studied 30 days in a row", "icon": "👑"},
+    "flashcard_10":     {"label": "🧠 Card Crusher",        "desc": "Reviewed 10 flashcards", "icon": "🧠"},
+    "level_5":          {"label": "🚀 Rising Star",         "desc": "Reached Level 5", "icon": "🚀"},
+    "level_10":         {"label": "🌌 Study Legend",        "desc": "Reached Level 10", "icon": "🌌"},
 }
 
-# TRANSLATIONS (English -> Sinhala) for core UI text.
-# Usage: wrap any English UI string with t("...") to get it translated when
-# the active profile's language is set to Sinhala. Falls back to the
-# original English string for anything not in this dictionary.
+# TRANSLATIONS
 TRANSLATIONS = {
     "💡 Daily Facts": "💡 දිනපතා තොරතුරු",
     "🗺️ Mindmap": "🗺️ මනසේ සිතියම",
@@ -74,6 +73,8 @@ TRANSLATIONS = {
     "⏱️ Pomodoro": "⏱️ පොමදෝරෝ",
     "✍️ Scribble Pad": "✍️ සටහන් පොත",
     "📊 Analytics": "📊 විශ්ලේෂණ",
+    "🏠 Home": "🏠 මුල් පිටුව",
+    "⚙️ Settings": "⚙️ සැකසුම්",
     "💡 Daily Tech & Science Facts": "💡 දෛනික තාක්ෂණික හා විද්‍යා තොරතුරු",
     "Get interesting Tech/Science facts here": "රසවත් තාක්ෂණික/විද්‍යා තොරතුරු මෙතැනින්",
     "🗺️ AI Mindmap Generator": "🗺️ AI මනසේ සිතියම් සකසනය",
@@ -107,10 +108,16 @@ TRANSLATIONS = {
     "Great job! Now take a short break. ☕": "වැඩක් කරා! දැන් කෙටි විවේකයක් ගන්න. ☕",
     "🔄 Switch Profile": "🔄 පැතිකඩ මාරු කරන්න",
     "No badges unlocked yet!": "තවම බැජ් කිසිවක් හිමි වී නැත!",
+    "🏠 Dashboard": "🏠 උපකරණ පුවරුව",
+    "Welcome back!": "ආපසු සාදරයෙන් පිළිගනිමු!",
+    "Pick up where you left off": "ඔබ නතර කළ තැනින් ආරම්භ කරන්න",
+    "Quick Actions": "ඉක්මන් ක්‍රියා",
+    "Study Progress": "අධ්‍යයන ප්‍රගතිය",
+    "Recent Activity": "මෑත ක්‍රියාකාරකම්",
 }
 
 def t(text):
-    """Translate a UI string to the active profile's language (falls back to English)."""
+    """Translate a UI string to the active profile's language."""
     lang = st.session_state.get("app_language", "en")
     if lang == "si":
         return TRANSLATIONS.get(text, text)
@@ -119,8 +126,8 @@ def t(text):
 DEFAULT_PROFILE = {
     "user_name": "",
     "email": "",
-    "password_hash": None,   # None = no password set (Google-only account, or legacy pre-auth profile)
-    "auth_provider": "password",  # "password" or "google"
+    "password_hash": None,
+    "auth_provider": "password",
     "user_grade": "Grade 8",
     "user_age": 13,
     "user_gender": "Prefer not to say",
@@ -147,6 +154,32 @@ DEFAULT_PROFILE = {
     },
     "quiz_history": [],
     "pomodoro_history": [],
+    "last_feature_used": None,
+    "last_visit_date": None,
+    "custom_theme": {
+        "enabled": False,
+        "primary_color": "#7C8CFF",
+        "secondary_color": "#C77DFF",
+        "background_start": "#05070D",
+        "background_mid": "#11141F",
+        "text_color": "#F5F7FA",
+        "card_color": "#1A1A2E",
+        "accent_color": "#1A1A2E",
+        "border_color": "#2A2A3E",
+        "background_image": None,
+        "glass_blur": 22,
+        "glass_opacity": 0.06,
+        "glass_saturation": 180,
+        "glow_intensity": 60,
+        "solid_bg": "#05070D",
+        "grad_start": "#05070D",
+        "grad_end": "#1a1a3e",
+        "grad_angle": 135,
+        "bg_blur": 0,
+        "particle_density": "Medium",
+        "particle_color": "#7C8CFF",
+        "particle_speed": 3,
+    },
 }
 
 # PDF HELPER FUNCTION
@@ -159,23 +192,11 @@ def extract_text_from_pdf(pdf_file):
         return f"Error extracting text from PDF: {e}"
 
 # DATA PERSISTENCE
-#
-# Previously this app kept everyone's data in one big JSON file and
-# rewrote the ENTIRE file on every save. That has two real problems under
-# concurrent use: (1) a crash mid-write can corrupt the whole file for
-# every user, and (2) if two people are using the app at the same time,
-# whichever one saves last silently overwrites the other's changes — even
-# to a completely different profile — because each save dumps that
-# session's whole in-memory snapshot, stale bits and all.
-#
-# SQLite (one row per user, in WAL mode) fixes both: writes are atomic
-# and scoped to a single row, so saving your profile can never clobber
-# someone else's, and a crash mid-write can't corrupt other people's data.
 _db_lock = threading.Lock()
 
 def get_db_connection():
     conn = sqlite3.connect(DB_FILE, check_same_thread=False, timeout=10)
-    conn.execute("PRAGMA journal_mode=WAL;")  # lets multiple users read/write concurrently and safely
+    conn.execute("PRAGMA journal_mode=WAL;")
     return conn
 
 def init_db():
@@ -194,10 +215,6 @@ def init_db():
         conn.close()
 
 def _migrate_legacy_json_if_needed():
-    """One-time import: if an old study_organizer_data.json exists and the
-    new database is still empty, pull its profiles in so nobody's existing
-    data gets lost by upgrading. Safe to leave in place permanently — it
-    only ever runs when the database has zero rows."""
     if not os.path.exists(LEGACY_JSON_FILE):
         return
     conn = get_db_connection()
@@ -219,7 +236,7 @@ def _migrate_legacy_json_if_needed():
                 )
             conn.commit()
     except Exception:
-        pass  # if the legacy file is unreadable, just start fresh in the new database
+        pass
     finally:
         conn.close()
 
@@ -236,13 +253,10 @@ def load_all_data():
         try:
             users[username] = json.loads(data_json)
         except Exception:
-            continue  # skip a corrupted row rather than crashing the whole app
+            continue
     return {"users": users}
 
 def save_profile(key, profile):
-    """Atomically write ONE user's row. Always prefer this over save_all_data —
-    it's what makes concurrent use safe, since it can never touch anyone
-    else's data."""
     conn = get_db_connection()
     try:
         with _db_lock:
@@ -255,20 +269,37 @@ def save_profile(key, profile):
     finally:
         conn.close()
 
-def save_all_data(data):
-    """Kept for any leftover call sites, but writes every row from this
-    session's in-memory snapshot — prefer save_profile() for anything that
-    only touches one user, since that can't clobber concurrent changes to
-    other profiles the way a wholesale rewrite can."""
-    for key, profile in data.get("users", {}).items():
-        save_profile(key, profile)
-
 def new_profile(name, grade, age, gender):
     profile = json.loads(json.dumps(DEFAULT_PROFILE))
     profile["user_name"] = name
     profile["user_grade"] = grade
     profile["user_age"] = age
     profile["user_gender"] = gender
+    return profile
+
+def migrate_theme_colors(profile):
+    """Migrate old rgba theme colors to hex values"""
+    if "custom_theme" in profile:
+        theme = profile["custom_theme"]
+        
+        # Fix rgba values in theme
+        rgba_to_hex = {
+            "rgba(255, 255, 255, 0.06)": "#1A1A2E",
+            "rgba(255, 255, 255, 0.14)": "#2A2A3E",
+            "rgba(124, 140, 255, 0.18)": "#1A1A2E",
+            "rgba(255, 255, 255, 0.08)": "#1A1A2E",
+        }
+        
+        for key in ["card_color", "accent_color", "border_color"]:
+            if key in theme and theme[key] in rgba_to_hex:
+                theme[key] = rgba_to_hex[theme[key]]
+        
+        # Ensure all required keys exist
+        default_theme = DEFAULT_PROFILE["custom_theme"]
+        for key, value in default_theme.items():
+            if key not in theme:
+                theme[key] = value
+    
     return profile
 
 def ensure_profile_shape(profile):
@@ -289,12 +320,15 @@ def ensure_profile_shape(profile):
     profile.setdefault("email", "")
     profile.setdefault("password_hash", None)
     profile.setdefault("auth_provider", "password")
+    profile.setdefault("last_feature_used", None)
+    profile.setdefault("last_visit_date", None)
+    
+    # Migrate theme colors
+    profile = migrate_theme_colors(profile)
+    
     return profile
 
 # ACCOUNT SECURITY
-# Passwords are hashed with PBKDF2-HMAC-SHA256 (stdlib only — no extra
-# dependency). This is a well-vetted, OWASP-recommended algorithm; the
-# iteration count below matches current OWASP guidance for SHA-256.
 PBKDF2_ITERATIONS = 260_000
 
 def hash_password(password: str) -> str:
@@ -313,7 +347,6 @@ def verify_password(password: str, stored: str) -> bool:
         return False
 
 def find_account(identifier: str):
-    """Look up a profile by username (dict key) or by email. Returns (key, profile) or (None, None)."""
     identifier = (identifier or "").strip().lower()
     if not identifier:
         return None, None
@@ -332,9 +365,6 @@ def is_google_auth_configured() -> bool:
         return False
 
 def login_rate_limited(identifier: str) -> bool:
-    """Very basic in-session brute-force slow-down: 5 failed attempts locks that
-    identifier out for the rest of the browser session. This is a light backstop,
-    not a substitute for real infra-level rate limiting on a public deployment."""
     attempts = st.session_state.setdefault("login_attempts", {})
     return attempts.get(identifier, 0) >= 5
 
@@ -412,16 +442,48 @@ def touch_daily_streak(profile):
     check_badges(profile)
 
 def render_gamification_popups():
+    """Enhanced popups with confetti/celebration effects"""
     for lvl in st.session_state.get("level_up_queue", []):
+        st.markdown(f"""
+        <div class="level-up-celebration">
+            <div class="confetti-container">
+                <div class="confetti-piece"></div>
+                <div class="confetti-piece"></div>
+                <div class="confetti-piece"></div>
+                <div class="confetti-piece"></div>
+                <div class="confetti-piece"></div>
+                <div class="confetti-piece"></div>
+                <div class="confetti-piece"></div>
+                <div class="confetti-piece"></div>
+                <div class="confetti-piece"></div>
+                <div class="confetti-piece"></div>
+            </div>
+            <div class="level-up-content">
+                🚀 Level {lvl} Unlocked!
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        st.balloons()
         st.toast(f"🎉 Level Up! You're now Level {lvl}!", icon="🚀")
     st.session_state["level_up_queue"] = []
+    
     for badge_id in st.session_state.get("new_badges_queue", []):
         badge = BADGES.get(badge_id)
         if badge:
-            st.toast(f"Badge unlocked: {badge['label']}", icon="🏅")
+            st.markdown(f"""
+            <div class="badge-unlock">
+                <div class="badge-unlock-icon">{badge['icon']}</div>
+                <div class="badge-unlock-content">
+                    <strong>Badge Unlocked!</strong>
+                    <br>{badge['label']}
+                    <br><small>{badge['desc']}</small>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            st.toast(f"🏅 Badge unlocked: {badge['label']}", icon="🏅")
     st.session_state["new_badges_queue"] = []
 
-# SPACED REPETITION ENGINE (SM-2 lite)
+# SPACED REPETITION ENGINE
 def new_flashcard(front, back, subject):
     return {
         "id": str(uuid.uuid4())[:8],
@@ -449,7 +511,7 @@ def schedule_flashcard(card, grade):
             factor = 1.2
         elif grade == "good":
             factor = ease
-        else:  
+        else:
             ease = ease + 0.15
             factor = ease * 1.3
         interval = 1 if interval == 0 else max(1, round(interval * factor))
@@ -478,13 +540,11 @@ def save_current():
 
 # AI SETUP
 def get_api_key():
-    # 1) Streamlit secrets file: .streamlit/secrets.toml
     try:
         if hasattr(st, "secrets") and "GEMINI_API_KEY" in st.secrets:
             return st.secrets["GEMINI_API_KEY"]
     except Exception:
         pass
-    # 2) A real environment variable (set in the shell, or via a .env file loaded above)
     key = os.environ.get("GEMINI_API_KEY")
     if key:
         return key
@@ -500,15 +560,7 @@ def get_client():
 def get_ai_response(prompt, image=None):
     client = get_client()
     if client is None:
-        return (
-            "⚠️ **No Gemini API key found.** The app checked three places and found nothing:\n\n"
-            "1. `.streamlit/secrets.toml` in your project folder, containing a line: `GEMINI_API_KEY = \"your-key-here\"`\n"
-            "2. A `GEMINI_API_KEY` environment variable set in the terminal you launched the app from\n"
-            "3. A `.env` file in your project folder, containing a line: `GEMINI_API_KEY=your-key-here`\n\n"
-            "After adding the key with one of these methods, **fully stop and restart** `streamlit run app.py` — "
-            "it only reads the key once when the server starts, so a running app won't pick up a key you just added.\n\n"
-            "අවශ්‍ය නම්: ඉහත ක්‍රම 3න් එකකින් `GEMINI_API_KEY` එක එකතු කර, යෙදුම නවත්වා යළි ආරම්භ කරන්න."
-        )
+        return "⚠️ **No Gemini API key found.** Please add your API key."
     try:
         contents_list = [prompt]
         if image is not None:
@@ -520,18 +572,9 @@ def get_ai_response(prompt, image=None):
         return response.text
     except Exception as e:
         err_text = str(e)
-        if "401" in err_text or "UNAUTHENTICATED" in err_text or "ACCESS_TOKEN_TYPE_UNSUPPORTED" in err_text or "invalid_api_key" in err_text.lower():
-            return (
-                "⚠️ **Your API key was found, but Google rejected it (401/authentication error).** "
-                "This is a known issue in 2026: Google is migrating Gemini API keys from the old `AIza...` format "
-                "to a new `AQ....` \"auth key\" format, and some `google-genai` SDK versions don't authenticate the new "
-                "format correctly yet. If your key starts with `AQ.`, try:\n\n"
-                "1. Upgrade the SDK: run `pip install --upgrade google-genai` and fully restart the app.\n"
-                "2. If that doesn't help, generate a fresh key in Google AI Studio and try again — some existing `AQ.` keys "
-                "have had propagation issues.\n\n"
-                f"Raw error: {err_text}"
-            )
-        return f"ERROR: Please check your internet connection ({err_text})"
+        if "401" in err_text or "UNAUTHENTICATED" in err_text:
+            return f"⚠️ **API Key error:** {err_text}"
+        return f"ERROR: {err_text}"
 
 def parse_quiz_json(raw_text):
     cleaned = raw_text.strip()
@@ -556,11 +599,7 @@ def parse_quiz_json(raw_text):
             return ast.literal_eval(block)
     raise ValueError("Could not parse quiz JSON")
 
-# THEME SYSTEM — "Liquid Glass"
-# One theme only: a deep dark backdrop with soft floating colour blobs, and
-# every panel (dock, profile card, buttons, badges, pomodoro ring, flash
-# cards) rendered as frosted, translucent glass with a subtle specular
-# highlight along its top edge — Apple's "Liquid Glass" language.
+# THEME SYSTEM — "Liquid Glass" Enhanced
 GLASS_TOKENS = {
     "bg": "#05070D",
     "bg-elevated": "#11141F",
@@ -587,9 +626,8 @@ def apply_theme(theme=None):
     
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
 
-  :root {{ {root_vars} }}
+    :root {{ {root_vars} }}
 
-    /* 2. Apply font ONLY to main app content & sidebar text */
     [data-testid="stMain"] p, 
     [data-testid="stMain"] h1, 
     [data-testid="stMain"] h2, 
@@ -603,16 +641,12 @@ def apply_theme(theme=None):
         font-family: 'Plus Jakarta Sans', sans-serif !important;
     }}
 
-    /* 3. HARD RESET for Streamlit's Header Icons */
     [data-testid="stHeader"] *, 
     [data-testid="stAppHeader"] *,
     header * {{
         font-family: 'Material Symbols Rounded', 'Material Icons', sans-serif !important;
     }}
 
-    /* ---------- Liquid backdrop: soft static colour wash, no filters/animation ---------- */
-    /* (A blurred, animated, full-viewport layer here can make some browsers/GPUs
-       stall and paint nothing at all — so this stays a plain, static gradient.) */
     .stApp {{
         background:
             radial-gradient(1200px 800px at 10% 0%, rgba(124, 140, 255, 0.16), transparent 55%),
@@ -629,7 +663,6 @@ def apply_theme(theme=None):
         border-right: 1px solid var(--border);
     }}
 
-    /* Subtle page-load transition so switching sections feels alive, not jarring */
     [data-testid="stMainBlockContainer"] {{
         padding-top: 2rem !important;
         padding-left: 2rem !important;
@@ -643,18 +676,25 @@ def apply_theme(theme=None):
         [data-testid="stMainBlockContainer"] {{ animation: none; }}
     }}
 
-    /* ---------- Glass helper: frosted surface + top specular highlight ---------- */
+    /* Enhanced Glass Effects */
     .profile-card, .streak-pill, .pomo-ring-inner, .flash-face,
     div[data-testid="stMetric"], div[data-testid="stExpander"],
-    div[data-testid="stForm"] {{
+    div[data-testid="stForm"], .home-card, .quick-action-card {{
         background: var(--card-bg) !important;
         backdrop-filter: blur(22px) saturate(180%);
         -webkit-backdrop-filter: blur(22px) saturate(180%);
         border: 1px solid var(--border) !important;
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), var(--shadow);
+        border-radius: 18px;
+        padding: 20px;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }}
+    .home-card:hover, .quick-action-card:hover {{
+        transform: translateY(-4px);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 12px 40px rgba(0, 0, 0, 0.5);
     }}
 
-    /* ---------- Inputs, selects, textareas, file uploader: same glass surface ---------- */
+    /* Inputs */
     div[data-testid="stTextInput"] input,
     div[data-testid="stNumberInput"] input,
     div[data-testid="stTextArea"] textarea,
@@ -671,46 +711,13 @@ def apply_theme(theme=None):
         color: var(--text) !important;
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
     }}
-    div[data-testid="stTextInput"] input:focus,
-    div[data-testid="stNumberInput"] input:focus,
-    div[data-testid="stTextArea"] textarea:focus,
-    div[data-testid="stSelectbox"] div[data-baseweb="select"]:focus-within > div {{
-        border-color: var(--accent-1) !important;
-        box-shadow: 0 0 0 3px var(--accent-soft) !important;
-    }}
 
-    /* Selectbox / multiselect dropdown popover menu */
-    div[data-baseweb="popover"] div[data-baseweb="menu"] {{
-        background: var(--bg-elevated) !important;
-        backdrop-filter: blur(24px) saturate(180%) !important;
-        -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
-        border: 1px solid var(--border) !important;
-        border-radius: 14px !important;
-        box-shadow: var(--shadow) !important;
-    }}
-    div[data-baseweb="popover"] li, div[data-baseweb="popover"] li * {{
-        color: var(--text) !important;
-    }}
-    div[data-baseweb="popover"] li:hover {{
-        background: var(--accent-soft) !important;
-    }}
-
-    /* Sliders: glowing glass thumb + tinted track */
-    div[data-testid="stSlider"] [data-baseweb="slider"] > div:nth-child(2) {{
-        background: var(--track-bg) !important;
-    }}
-    div[data-testid="stSlider"] [role="slider"] {{
-        background: linear-gradient(135deg, var(--accent-1), var(--accent-2)) !important;
-        border: 2px solid rgba(255, 255, 255, 0.6) !important;
-        box-shadow: 0 0 0 4px var(--accent-soft), 0 2px 10px rgba(0, 0, 0, 0.4) !important;
-    }}
-
-    /* ---------- Floating dock navigation ---------- */
+    /* Floating dock navigation with tooltips */
     div[class*="st-key-nav_dock"] div[data-testid="stRadio"] {{
         position: fixed !important;
         right: 20px !important;
-        top: 0 !important;
-        transform: translateY(50%) !important;
+        top: 50% !important;
+        transform: translateY(-50%) !important;
         left: auto !important;
         z-index: 999999 !important;
         background: var(--dock-bg) !important;
@@ -729,30 +736,88 @@ def apply_theme(theme=None):
         flex-direction: column !important;
         gap: 6px !important;
     }}
-    div[class*="st-key-nav_dock"] div[data-testid="stRadio"] label > div:first-child {{ display: none !important; }}
     div[class*="st-key-nav_dock"] div[data-testid="stRadio"] label {{
+        display: flex !important;
+        align-items: center !important;
+        gap: 0 !important;
         background: transparent !important;
-        padding: 6px 12px !important;
+        padding: 8px 12px !important;
         border-radius: 14px !important;
         color: var(--muted) !important;
         cursor: pointer !important;
         font-size: 0.82rem !important;
         font-weight: 500 !important;
         transition: all 0.2s ease !important;
-        white-space: nowrap;
+        white-space: nowrap !important;
+        position: relative !important;
+        margin: 0 !important;
     }}
     div[class*="st-key-nav_dock"] div[data-testid="stRadio"] label:hover {{
         color: var(--text) !important;
         background: var(--accent-soft) !important;
     }}
-    div[class*="st-key-nav_dock"] div[data-testid="stRadio"] label[data-checked="true"] {{
+    div[class*="st-key-nav_dock"] div[data-testid="stRadio"] label .st-emotion-cache-1f5stn {{
+        display: none !important;
+    }}
+    div[class*="st-key-nav_dock"] div[data-testid="stRadio"] label .st-emotion-cache-1p1m4ay {{
+        display: none !important;
+    }}
+    div[class*="st-key-nav_dock"] div[data-testid="stRadio"] label .st-emotion-cache-1q1hqs3 {{
+        display: none !important;
+    }}
+    div[class*="st-key-nav_dock"] div[data-testid="stRadio"] label .st-emotion-cache-1v0mbdj {{
+        display: none !important;
+    }}
+
+    div[class*="st-key-nav_dock"] div[data-testid="stRadio"] label .st-emotion-cache-1l284xh {{
+        display: none !important;
+    }}
+
+    div[class*="st-key-nav_dock"] div[data-testid="stRadio"] label .st-emotion-cache-1vzeuhh {{
+        margin: 0 !important;
+        padding: 0 !important;
+    }}
+
+    div[class*="st-key-nav_dock"] div[data-testid="stRadio"] label[data-baseweb="radio"] {{
+        background: transparent !important;
+    }}
+    div[class*="st-key-nav_dock"] div[data-testid="stRadio"] label[data-baseweb="radio"][aria-checked="true"] {{
         background: linear-gradient(135deg, var(--accent-1) 0%, var(--accent-2) 100%) !important;
         color: #FFFFFF !important;
         font-weight: 600 !important;
-        box-shadow: 0 4px 16px rgba(124, 140, 255, 0.4);
+        box-shadow: 0 4px 16px rgba(124, 140, 255, 0.4) !important;
     }}
 
-    /* On narrow / mobile screens the side dock becomes a bottom nav bar */
+    div[class*="st-key-nav_dock"] div[data-testid="stRadio"] label[data-baseweb="radio"]:hover::after {{
+        content: attr(data-tooltip);
+        position: absolute;
+        right: calc(100% + 14px);
+        top: 50%;
+        transform: translateY(-50%);
+        background: var(--bg-elevated);
+        color: var(--text);
+        padding: 4px 12px;
+        border-radius: 8px;
+        font-size: 0.75rem;
+        white-space: nowrap;
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow);
+        font-weight: 500;
+        letter-spacing: 0.3px;
+        pointer-events: none;
+        z-index: 1000000;
+    }}
+    div[class*="st-key-nav_dock"] div[data-testid="stRadio"] label[data-baseweb="radio"]:hover::before {{
+        content: '';
+        position: absolute;
+        right: calc(100% + 8px);
+        top: 50%;
+        transform: translateY(-50%);
+        border: 6px solid transparent;
+        border-left-color: var(--bg-elevated);
+        z-index: 1000000;
+    }}
+
     @media (max-width: 900px) {{
         div[class*="st-key-nav_dock"] div[data-testid="stRadio"] {{
             top: auto !important;
@@ -764,11 +829,25 @@ def apply_theme(theme=None):
             max-height: none !important;
             border-radius: 22px 22px 0 0 !important;
             border-bottom: none !important;
+            padding: 8px 4px !important;
         }}
         div[class*="st-key-nav_dock"] div[data-testid="stRadio"] > div {{
             flex-direction: row !important;
             overflow-x: auto !important;
             justify-content: flex-start !important;
+            gap: 2px !important;
+            padding: 0 4px;
+        }}
+        div[class*="st-key-nav_dock"] div[data-testid="stRadio"] label[data-baseweb="radio"] {{
+            font-size: 0.75rem !important;
+            padding: 6px 10px !important;
+            flex-shrink: 0;
+        }}
+        div[class*="st-key-nav_dock"] div[data-testid="stRadio"] label[data-baseweb="radio"]:hover::after {{
+            display: none !important;
+        }}
+        div[class*="st-key-nav_dock"] div[data-testid="stRadio"] label[data-baseweb="radio"]:hover::before {{
+            display: none !important;
         }}
         [data-testid="stMainBlockContainer"] {{
             padding-right: 1.2rem !important;
@@ -777,12 +856,6 @@ def apply_theme(theme=None):
         }}
     }}
 
-    div[data-testid="stMetric"] {{
-        border-radius: 18px;
-        padding: 16px;
-    }}
-
-    /* ---------- Buttons: glossy glass pills ---------- */
     .stButton > button {{
         border-radius: 14px !important;
         border: 1px solid rgba(255, 255, 255, 0.18) !important;
@@ -801,16 +874,216 @@ def apply_theme(theme=None):
         border-color: transparent !important;
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 10px 30px rgba(124, 140, 255, 0.45) !important;
     }}
-    .stButton > button:active {{
-        transform: translateY(0px) scale(0.98) !important;
-        box-shadow: 0 2px 8px rgba(124, 140, 255, 0.3) !important;
-    }}
-    .stButton > button:focus-visible {{
-        outline: 2px solid var(--accent-1) !important;
-        outline-offset: 2px !important;
-    }}
 
-    /* ---------- Profile card ---------- */
+    /* Flashcard 3D Flip */
+    .flashcard-container {{
+        perspective: 1000px;
+        margin: 20px 0;
+    }}
+    .flashcard {{
+        position: relative;
+        width: 100%;
+        min-height: 200px;
+        transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+        transform-style: preserve-3d;
+        cursor: pointer;
+    }}
+    .flashcard.flipped {{
+        transform: rotateY(180deg);
+    }}
+    .flashcard-face {{
+        position: absolute;
+        width: 100%;
+        min-height: 200px;
+        backface-visibility: hidden;
+        border-radius: 18px;
+        padding: 30px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.25rem;
+        text-align: center;
+        background: var(--card-bg);
+        backdrop-filter: blur(22px) saturate(180%);
+        border: 1px solid var(--border);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), var(--shadow);
+    }}
+    .flashcard-back {{
+        transform: rotateY(180deg);
+        border-color: var(--accent-2);
+    }}
+    
+    /* Quiz answer feedback animations */
+    .quiz-correct {{
+        animation: quiz-pop-green 0.5s ease;
+        border-left: 4px solid #4CAF50 !important;
+        padding-left: 16px !important;
+        background: rgba(76, 175, 80, 0.1) !important;
+    }}
+    .quiz-incorrect {{
+        animation: quiz-pop-red 0.5s ease;
+        border-left: 4px solid #f44336 !important;
+        padding-left: 16px !important;
+        background: rgba(244, 67, 54, 0.1) !important;
+    }}
+    @keyframes quiz-pop-green {{
+        0% {{ transform: scale(1); background: rgba(76, 175, 80, 0); }}
+        50% {{ transform: scale(1.02); background: rgba(76, 175, 80, 0.2); }}
+        100% {{ transform: scale(1); background: rgba(76, 175, 80, 0.1); }}
+    }}
+    @keyframes quiz-pop-red {{
+        0% {{ transform: scale(1); background: rgba(244, 67, 54, 0); }}
+        50% {{ transform: scale(1.02); background: rgba(244, 67, 54, 0.2); }}
+        100% {{ transform: scale(1); background: rgba(244, 67, 54, 0.1); }}
+    }}
+    
+    /* Level-up celebration */
+    .level-up-celebration {{
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: var(--bg-elevated);
+        border: 2px solid var(--accent-1);
+        border-radius: 24px;
+        padding: 40px 60px;
+        z-index: 9999;
+        animation: level-up-pop 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+        text-align: center;
+        backdrop-filter: blur(30px);
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
+    }}
+    .level-up-content {{
+        font-size: 2rem;
+        font-weight: 700;
+        background: linear-gradient(135deg, var(--accent-1), var(--accent-2));
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }}
+    @keyframes level-up-pop {{
+        0% {{ transform: translate(-50%, -50%) scale(0.5); opacity: 0; }}
+        100% {{ transform: translate(-50%, -50%) scale(1); opacity: 1; }}
+    }}
+    
+    /* Badge unlock */
+    .badge-unlock {{
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        background: var(--card-bg);
+        border: 1px solid var(--accent-2);
+        border-radius: 16px;
+        padding: 16px 24px;
+        margin: 12px 0;
+        animation: badge-unlock-slide 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        backdrop-filter: blur(20px);
+        box-shadow: 0 8px 32px rgba(199, 125, 255, 0.2);
+    }}
+    .badge-unlock-icon {{
+        font-size: 3rem;
+    }}
+    .badge-unlock-content {{
+        color: var(--text);
+    }}
+    @keyframes badge-unlock-slide {{
+        0% {{ transform: translateX(-50px); opacity: 0; }}
+        100% {{ transform: translateX(0); opacity: 1; }}
+    }}
+    
+    /* Confetti */
+    .confetti-container {{
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        pointer-events: none;
+    }}
+    .confetti-piece {{
+        position: absolute;
+        width: 10px;
+        height: 10px;
+        animation: confetti-fall 3s linear infinite;
+    }}
+    .confetti-piece:nth-child(1) {{ background: #ff6b6b; left: 10%; animation-delay: 0s; }}
+    .confetti-piece:nth-child(2) {{ background: #ffd93d; left: 20%; animation-delay: 0.2s; }}
+    .confetti-piece:nth-child(3) {{ background: #6bcb77; left: 30%; animation-delay: 0.4s; }}
+    .confetti-piece:nth-child(4) {{ background: #4d96ff; left: 40%; animation-delay: 0.6s; }}
+    .confetti-piece:nth-child(5) {{ background: #ff6b6b; left: 50%; animation-delay: 0.8s; }}
+    .confetti-piece:nth-child(6) {{ background: #ffd93d; left: 60%; animation-delay: 1s; }}
+    .confetti-piece:nth-child(7) {{ background: #6bcb77; left: 70%; animation-delay: 1.2s; }}
+    .confetti-piece:nth-child(8) {{ background: #4d96ff; left: 80%; animation-delay: 1.4s; }}
+    .confetti-piece:nth-child(9) {{ background: #c77dff; left: 90%; animation-delay: 1.6s; }}
+    .confetti-piece:nth-child(10) {{ background: #ff6b6b; left: 15%; animation-delay: 1.8s; }}
+    @keyframes confetti-fall {{
+        0% {{ transform: translateY(-100px) rotate(0deg); opacity: 1; }}
+        100% {{ transform: translateY(300px) rotate(720deg); opacity: 0; }}
+    }}
+    
+    /* Shimmer loading skeleton */
+    .shimmer {{
+        background: linear-gradient(90deg, var(--card-bg) 25%, var(--track-bg) 50%, var(--card-bg) 75%);
+        background-size: 200% 100%;
+        animation: shimmer 1.5s infinite;
+        border-radius: 12px;
+        min-height: 100px;
+        margin: 10px 0;
+    }}
+    @keyframes shimmer {{
+        0% {{ background-position: 200% 0; }}
+        100% {{ background-position: -200% 0; }}
+    }}
+    
+    /* Home dashboard cards */
+    .home-grid {{
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 16px;
+        margin: 20px 0;
+    }}
+    .quick-action-card {{
+        text-align: center;
+        padding: 24px 16px;
+        cursor: pointer;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }}
+    .quick-action-card:hover {{
+        transform: translateY(-4px) scale(1.02);
+        border-color: var(--accent-1);
+    }}
+    .quick-action-icon {{
+        font-size: 2.5rem;
+        margin-bottom: 8px;
+    }}
+    .quick-action-label {{
+        font-size: 0.9rem;
+        font-weight: 500;
+        color: var(--text);
+    }}
+    
+    /* Empty state illustrations */
+    .empty-state {{
+        text-align: center;
+        padding: 40px 20px;
+        color: var(--muted);
+    }}
+    .empty-state-icon {{
+        font-size: 4rem;
+        margin-bottom: 16px;
+        opacity: 0.6;
+    }}
+    .empty-state-text {{
+        font-size: 1.1rem;
+        font-weight: 500;
+    }}
+    .empty-state-hint {{
+        font-size: 0.9rem;
+        color: var(--muted-2);
+        margin-top: 8px;
+    }}
+    
+    /* Profile card enhancements */
     .profile-card {{
         border-radius: 22px;
         padding: 18px;
@@ -857,35 +1130,75 @@ def apply_theme(theme=None):
         backdrop-filter: blur(10px);
     }}
 
-    /* ---------- Pomodoro ring ---------- */
-    .pomo-ring {{
-        width: 220px; height: 220px; border-radius: 50%;
-        margin: 12px auto 20px auto;
-        background: conic-gradient(var(--accent-1) var(--pct, 0%), var(--track-bg) 0);
-        display: flex; align-items: center; justify-content: center;
-        transition: background 0.6s linear;
-        box-shadow: 0 0 50px rgba(124, 140, 255, 0.3);
+    /* Audio Player */
+    .audio-player-container {{
+        background: var(--card-bg);
+        border-radius: 18px;
+        padding: 24px;
+        border: 1px solid var(--border);
+        margin: 16px 0;
     }}
-    .pomo-ring-inner {{
-        width: 178px; height: 178px; border-radius: 50%;
-        display: flex; flex-direction: column; align-items: center; justify-content: center;
-        gap: 4px;
+    .audio-controls {{
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        flex-wrap: wrap;
     }}
-    .pomo-time {{ font-size: 2.1rem; font-weight: 700; letter-spacing: 0.5px; color: var(--text); font-variant-numeric: tabular-nums; }}
-    .pomo-label {{ font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }}
+    .audio-controls button {{
+        padding: 10px 20px;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+        background: var(--accent-soft);
+        color: var(--text);
+        cursor: pointer;
+        font-weight: 600;
+        transition: all 0.2s ease;
+    }}
+    .audio-controls button:hover {{
+        transform: translateY(-2px);
+        background: var(--accent-1);
+        color: white;
+    }}
+    .audio-controls button:disabled {{
+        opacity: 0.5;
+        cursor: not-allowed;
+        transform: none;
+    }}
+    .status-indicator {{
+        padding: 8px 16px;
+        border-radius: 8px;
+        background: var(--track-bg);
+        color: var(--muted);
+        font-size: 0.9rem;
+    }}
 
-    /* ---------- Flashcards ---------- */
-    .flash-face {{
-        padding: 24px; border-radius: 18px; text-align: center; font-size: 1.25rem;
+    /* Theme Builder Preview */
+    .theme-preview {{
+        border-radius: 18px;
+        padding: 30px;
+        border: 1px solid var(--border);
+        margin: 10px 0;
+    }}
+    .theme-preview .preview-card {{
+        background: var(--card-bg);
+        backdrop-filter: blur(20px);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 20px;
+        margin: 10px 0;
+    }}
+    .theme-preview .preview-accent {{
+        border-radius: 12px;
+        padding: 12px 24px;
+        color: white;
+        font-weight: 600;
+        display: inline-block;
+        margin: 5px;
     }}
     </style>
     """, unsafe_allow_html=True)
 
-
 # PARENT / TEACHER READ-ONLY VIEW
-# Reached via a link like "?view=parent&user=<student name>" — shows a
-# read-only progress summary for that one profile. No login, no editing,
-# no AI calls happen on this path; it just reads existing saved data.
 if st.query_params.get("view") == "parent":
     apply_theme()
     viewed_user = st.query_params.get("user", "")
@@ -933,13 +1246,7 @@ if st.query_params.get("view") == "parent":
             st.dataframe(pd.DataFrame(quiz_hist)[["date", "subject", "score", "total"]], use_container_width=True, hide_index=True)
     st.stop()
 
-
 # LOGIN / PROFILE SELECTION SCREEN
-
-# If Google auth is configured and the user just completed the Google
-# redirect flow, st.user.is_logged_in will be true here. Find or create
-# their profile by email and log them straight in, skipping the form.
-
 if st.session_state.active_user is None and is_google_auth_configured():
     try:
         if st.user.is_logged_in:
@@ -950,13 +1257,10 @@ if st.session_state.active_user is None and is_google_auth_configured():
                 st.session_state.auth_method = "google"
                 st.rerun()
             else:
-                # First time this Google account has signed in — collect the
-                # same profile details a manual sign-up would ask for, rather
-                # than silently defaulting to Grade 8 / age 13.
                 st.session_state.google_pending_email = google_email
                 st.session_state.google_pending_name = st.user.name or google_email.split("@")[0]
     except Exception:
-        pass  # st.user has no attributes until a login attempt has happened at least once
+        pass
 
 if st.session_state.active_user is None and st.session_state.get("google_pending_email"):
     apply_theme()
@@ -1084,7 +1388,6 @@ if st.session_state.active_user is None and not st.session_state.get("google_pen
 
     st.stop()
 
-
 # PERSONALIZED CONTEXT
 user_info = current_profile()
 user_gender = user_info.get("user_gender", "Prefer not to say")
@@ -1111,23 +1414,7 @@ language_instruction = (
 )
 
 # PER-FEATURE PROMPT BUILDERS
-#
-# Previously there was ONE shared "age_context" string, prepended as-is to
-# every AI call, that named all five study tools in a single sentence
-# ("Note Summarizer, MindMap Generator, AI MCQ Quiz, ... MUST strictly
-# align..."). Because that exact sentence went out with every request, the
-# model would sometimes treat it as a checklist and bolt on a summary, quiz
-# questions, etc. to whatever was actually asked for.
-#
-# Each feature now gets its own dedicated prompt-builder function below.
-# They share only a small, parameterized syllabus/single-task notice (never
-# a paragraph naming other tools), and each one explicitly states which one
-# output is wanted and lists the others it must NOT produce.
-
 def _syllabus_notice(task_name):
-    """Syllabus + single-task guard, parameterized per feature. Reused across
-    builders so the wording stays consistent, but every call site fills in
-    its OWN task name — never a list of other tools."""
     return (
         f"CRITICAL RULE: This request is for {task_name} ONLY — produce nothing else. Do not add a summary, quiz "
         f"questions, flashcards, a mindmap, or any other feature's output; only the {task_name} is wanted. "
@@ -1173,12 +1460,17 @@ def build_math_prompt(math_query):
         "like a friendly tutor teaching a beginner. Break down every step clearly."
     )
 
-def build_flashcards_prompt(subject, topic, count):
+def build_flashcards_prompt(subject, content, count):
+    if len(content) > 8000:
+        content = content[:8000] + "... (truncated)"
+    
     return (
         f"{_who_line()} {_syllabus_notice('flashcards')} {language_instruction} "
-        f"Subject: {subject}. Create ONLY exactly {count} flashcards for the topic '{topic}'. Return ONLY a raw "
-        f"JSON array of exactly {count} objects, each with keys 'front' (a short question or term) and 'back' "
-        "(a concise, clear answer/definition). No explanation outside the JSON."
+        f"Subject: {subject}. Based on the following content, create ONLY exactly {count} flashcards. "
+        "Extract key concepts, definitions, and important facts from the content. "
+        f"Return ONLY a raw JSON array of exactly {count} objects, each with keys 'front' (a short question or term) "
+        "and 'back' (a concise, clear answer/definition). No explanation outside the JSON.\n\n"
+        f"Content: {content}"
     )
 
 def build_goal_tasks_prompt(goal):
@@ -1189,14 +1481,32 @@ def build_goal_tasks_prompt(goal):
     )
 
 def build_daily_fact_prompt():
-    # Deliberately NOT syllabus-bound — Daily Facts intentionally explores
-    # general knowledge beyond the grade curriculum.
     return (
         f"{_who_line()} {language_instruction} "
         "Tell ONLY one amazing, mind-blowing, yet easy-to-understand science or computer technology fact — no "
         "summary, quiz, mindmap, or flashcards. Explain it in 3 clear bullet points."
     )
 
+def build_audio_overview_prompt(content, style="overview"):
+    """Build prompt for generating audio overview script"""
+    style_instructions = {
+        "overview": "Create a clear, engaging audio overview that summarizes the key points. Use a conversational tone, as if you're explaining it to a student. Include natural pauses and emphasis on important concepts.",
+        "detailed": "Create a comprehensive audio lesson that explains the content in detail. Use a teaching tone with clear explanations, examples, and natural pacing for learning.",
+        "study_guide": "Create a study guide audio that highlights the most important facts, definitions, and concepts. Use a focused, exam-prep tone with clear emphasis on key terms."
+    }
+    
+    instruction = style_instructions.get(style, style_instructions["overview"])
+    
+    return (
+        f"{_who_line()} {language_instruction} "
+        f"Based on the following content, generate a script for a text-to-speech audio file. "
+        f"{instruction} "
+        "The script should be well-structured with clear sections, natural language, and appropriate pacing for spoken word. "
+        "Use short, clear sentences. Add brief pauses with '...' where appropriate. "
+        "Format the script with clear section breaks using '---' between major topics. "
+        "Make it engaging and easy to listen to.\n\n"
+        f"Content: {content}"
+    )
 
 # DYNAMIC SIDEBAR RENDERER
 def render_sidebar():
@@ -1242,7 +1552,13 @@ def render_sidebar():
                 badge_tags = "".join([f'<span class="badge-tag">{BADGES[b]["label"]}</span>' for b in badges if b in BADGES])
                 st.markdown(f'<div class="badges-grid">{badge_tags}</div>', unsafe_allow_html=True)
             else:
-                st.caption(t("No badges unlocked yet!"))
+                st.markdown("""
+                <div class="empty-state">
+                    <div class="empty-state-icon">🏅</div>
+                    <div class="empty-state-text">No badges yet!</div>
+                    <div class="empty-state-hint">Complete activities to earn badges</div>
+                </div>
+                """, unsafe_allow_html=True)
 
         st.markdown("<div style='margin: 15px 0;'></div>", unsafe_allow_html=True)
 
@@ -1270,10 +1586,102 @@ def render_sidebar():
             st.session_state.auth_method = None
             st.rerun()
 
-# Invoking sidebar rendering
-render_sidebar()
-
 # MODULE FUNCTIONS
+
+def show_home():
+    """🏠 Home Dashboard - the new landing page with quick actions and overview"""
+    profile = current_profile()
+    gam = profile["gamification"]
+    analytics = profile["analytics"]
+    
+    st.header("🏠 " + t("Dashboard"))
+    
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        st.markdown(f"### {t('Welcome back!')} {profile['user_name']} 👋")
+        st.caption(f"{t('Study Progress')} - {profile['user_grade']}")
+        
+        q1, q2, q3, q4 = st.columns(4)
+        q1.metric("Level", gam["level"])
+        q2.metric("🔥 Streak", gam.get("streak", 0))
+        q3.metric("📚 Quizzes", analytics.get("quiz_taken", 0))
+        q4.metric("⏱️ Pomodoro", analytics.get("pomodoro_sessions", 0))
+    
+    with col2:
+        lvl, into_level, needed = xp_progress(gam["xp"])
+        pct = int((into_level / needed) * 100)
+        st.markdown(f"""
+        <div style="background: var(--card-bg); padding: 16px; border-radius: 14px; border: 1px solid var(--border);">
+            <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--muted);">
+                <span>XP Progress</span>
+                <span>{into_level} / {needed}</span>
+            </div>
+            <div style="background: var(--track-bg); border-radius: 10px; height: 8px; margin-top: 4px; overflow: hidden;">
+                <div style="background: linear-gradient(90deg, var(--accent-1), var(--accent-2)); height: 100%; width: {pct}%; border-radius: 10px;"></div>
+            </div>
+            <div style="margin-top: 8px; font-size: 0.7rem; color: var(--muted-2);">
+                {len(gam.get('badges', []))} badges earned
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.markdown("### " + t("Quick Actions"))
+    action_cols = st.columns(4)
+    
+    quick_actions = [
+        ("📝", "Summarizer", "AI Note Summarizer"),
+        ("🗺️", "Mindmap", "AI Mindmap Generator"),
+        ("❓", "Quiz", "MCQ Quiz"),
+        ("🧠", "Math", "Math Solver"),
+    ]
+    
+    for col, (icon, label, feature) in zip(action_cols, quick_actions):
+        with col:
+            if st.button(f"{icon} {label}", use_container_width=True):
+                st.session_state["nav_choice"] = icon
+                st.rerun()
+    
+    st.markdown("---")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### " + t("Pick up where you left off"))
+        last_feature = profile.get("last_feature_used", "💡")
+        feature_names = {
+            "💡": "Daily Facts",
+            "🗺️": "Mindmap",
+            "📝": "Summarizer",
+            "❓": "MCQ Quiz",
+            "🧠": "Math Solver",
+            "🎴": "Flashcards",
+            "⏱️": "Pomodoro",
+            "✍️": "Scribble Pad",
+            "🎧": "Audio Overview",
+            "📊": "Analytics",
+            "⚙️": "Settings"
+        }
+        st.info(f"🔁 Continue with **{feature_names.get(last_feature, 'Daily Facts')}**")
+        if st.button("↩️ Resume", use_container_width=True):
+            st.session_state["nav_choice"] = last_feature
+            st.rerun()
+    
+    with col2:
+        st.markdown("### " + t("Recent Activity"))
+        quiz_hist = profile.get("quiz_history", [])
+        pom_hist = profile.get("pomodoro_history", [])
+        
+        if quiz_hist or pom_hist:
+            recent_items = []
+            for q in quiz_hist[-3:]:
+                recent_items.append(f"📚 Quiz: {q.get('score', 0)}/{q.get('total', 0)} ({q.get('date', '')})")
+            for p in pom_hist[-3:]:
+                recent_items.append(f"⏱️ Focus: {p.get('minutes', 0)}min ({p.get('date', '')})")
+            
+            for item in recent_items[-3:]:
+                st.text(item)
+        else:
+            st.caption("No recent activity yet. Start studying to see your progress here!")
+
 def show_daily_facts():
     st.header(t("💡 Daily Tech & Science Facts"))
     st.caption(t("Get interesting Tech/Science facts here"))
@@ -1287,6 +1695,10 @@ def show_daily_facts():
             st.session_state.daily_fact_date = today_str
 
     st.info(st.session_state.daily_fact)
+    
+    profile = current_profile()
+    profile["last_feature_used"] = "💡"
+    save_current()
 
 def show_mindmap():
     st.header(t("🗺️ AI Mindmap Generator"))
@@ -1298,6 +1710,8 @@ def show_mindmap():
     if st.button("Generate Mindmap 🧠"):
         if mm_file or mm_text:
             with st.spinner("Structuring your mindmap..."):
+                st.markdown('<div class="shimmer" style="height:200px;"></div>', unsafe_allow_html=True)
+                
                 extracted_content = mm_text
                 img = None
                 
@@ -1315,6 +1729,7 @@ def show_mindmap():
                 
                 profile = current_profile()
                 add_xp(profile, XP_REWARDS["mindmap_created"], "mindmap_created")
+                profile["last_feature_used"] = "🗺️"
                 save_current()
                 render_gamification_popups()
         else:
@@ -1338,6 +1753,8 @@ def show_summarizer():
     if st.button("Summarize the note ✨"):
         if uploaded_file or user_note:
             with st.spinner("Your note is being summarized by AI..."):
+                st.markdown('<div class="shimmer" style="height:150px;"></div>', unsafe_allow_html=True)
+                
                 combined_text = user_note + "\n" + pdf_text
                 prompt = build_summarizer_prompt(combined_text)
                 output = get_ai_response(prompt, image=img)
@@ -1346,6 +1763,7 @@ def show_summarizer():
                 
                 profile = current_profile()
                 add_xp(profile, XP_REWARDS["note_summarized"], "note_summarized")
+                profile["last_feature_used"] = "📝"
                 save_current()
                 render_gamification_popups()
         else:
@@ -1374,6 +1792,8 @@ def show_mcq_quiz():
     if st.button("Get your MCQ questions 🎯"):
         if q_file or topic:
             with st.spinner(f"{num_questions} questions are being created by AI..."):
+                st.markdown('<div class="shimmer" style="height:200px;"></div>', unsafe_allow_html=True)
+                
                 combined_context = (topic or "") + "\n" + pdf_text
                 prompt = build_quiz_prompt(
                     subject, difficulty, num_questions,
@@ -1395,17 +1815,18 @@ def show_mcq_quiz():
         st.write("### ✍️ Answer the questions:")
 
         for idx, q in enumerate(st.session_state.quiz_list):
-            st.markdown(f"#### **Question {idx+1}:** {q['question']}")
-            options = [f"A) {q['A']}", f"B) {q['B']}", f"C) {q['C']}", f"D) {q['D']}"]
-            user_choice = st.radio(f"q_{idx}", options, key=f"q_ans_{idx}", label_visibility="collapsed")
-            st.session_state.quiz_answers[idx] = user_choice[0]
-            st.write("")
+            with st.container():
+                st.markdown(f"#### **Question {idx+1}:** {q['question']}")
+                options = [f"A) {q['A']}", f"B) {q['B']}", f"C) {q['C']}", f"D) {q['D']}"]
+                user_choice = st.radio(f"q_{idx}", options, key=f"q_ans_{idx}", label_visibility="collapsed", index=None)
+                st.session_state.quiz_answers[idx] = user_choice[0] if user_choice else ""
+                st.write("")
 
         if st.button("Submit Answers ✔️") and not st.session_state.get("quiz_checked", False):
             st.session_state.quiz_checked = True
             score = 0
             for idx, q in enumerate(st.session_state.quiz_list):
-                if st.session_state.quiz_answers.get(idx, "-") == q["correct"]:
+                if st.session_state.quiz_answers.get(idx, "") == q["correct"]:
                     score += 1
 
             total_qs = len(st.session_state.quiz_list)
@@ -1423,6 +1844,7 @@ def show_mcq_quiz():
             add_xp(profile, XP_REWARDS["quiz_complete"], "quiz_complete")
             if total_qs > 0 and score == total_qs:
                 award_badge(profile, "perfect_score")
+            profile["last_feature_used"] = "❓"
             save_current()
 
         if st.session_state.get("quiz_checked", False):
@@ -1430,12 +1852,13 @@ def show_mcq_quiz():
             st.write("---")
             st.write("### 📊 Result Summary:")
             for idx, q in enumerate(st.session_state.quiz_list):
-                u_ans = st.session_state.quiz_answers.get(idx, "-")
-                if u_ans == q["correct"]:
+                u_ans = st.session_state.quiz_answers.get(idx, "")
+                is_correct = u_ans == q["correct"]
+                if is_correct:
                     score += 1
-                    st.success(f"✅ Question {idx+1}: Correct! (Answer: {u_ans})")
+                    st.markdown(f'<div class="quiz-correct">✅ <strong>Question {idx+1}:</strong> Correct! (Answer: {u_ans})</div>', unsafe_allow_html=True)
                 else:
-                    st.error(f"❌ Question {idx+1}: Wrong! (Your Answer: {u_ans} | Correct: {q['correct']})")
+                    st.markdown(f'<div class="quiz-incorrect">❌ <strong>Question {idx+1}:</strong> Wrong! (Your Answer: {u_ans} | Correct: {q["correct"]})</div>', unsafe_allow_html=True)
 
             total_qs = len(st.session_state.quiz_list)
             st.markdown(f"## 🏆 Total Score: **{score} / {total_qs}**")
@@ -1458,6 +1881,8 @@ def show_math_solver():
     if st.button("Solve problem 🧮"):
         if math_img or math_query:
             with st.spinner("Your question is being solved by AI..."):
+                st.markdown('<div class="shimmer" style="height:150px;"></div>', unsafe_allow_html=True)
+                
                 prompt = build_math_prompt(math_query)
                 math_solution = get_ai_response(prompt, image=math_img)
                 st.success("Here is how to solve your question:")
@@ -1466,6 +1891,7 @@ def show_math_solver():
                 profile = current_profile()
                 profile["analytics"]["math_problems_solved"] = profile["analytics"].get("math_problems_solved", 0) + 1
                 add_xp(profile, XP_REWARDS["math_solved"], "math_solved")
+                profile["last_feature_used"] = "🧠"
                 save_current()
                 render_gamification_popups()
         else:
@@ -1497,68 +1923,133 @@ def show_flashcards():
 
             card = due_cards[review_idx]
             st.markdown(f"**Subject:** {card.get('subject', 'General')}  ·  Card {review_idx + 1}/{len(due_cards)}")
-            st.markdown(f"<div class='flash-face'>{card['front']}</div>", unsafe_allow_html=True)
+            
+            is_flipped = st.session_state.get(f"flash_flipped_{card['id']}", False)
+            flip_class = "flipped" if is_flipped else ""
+            
+            st.markdown(f"""
+            <div class="flashcard-container">
+                <div class="flashcard {flip_class}" onclick="this.classList.toggle('flipped')">
+                    <div class="flashcard-face">
+                        <div>{card['front']}</div>
+                    </div>
+                    <div class="flashcard-face flashcard-back">
+                        <div>{card['back']}</div>
+                    </div>
+                </div>
+            </div>
+            <p style="text-align:center;color:var(--muted);font-size:0.8rem;">Click the card to flip it</p>
+            """, unsafe_allow_html=True)
+            
+            st.write("How well did you know this?")
+            g1, g2, g3, g4 = st.columns(4)
+            grade_clicked = None
+            if g1.button("😵 Again", use_container_width=True): grade_clicked = "again"
+            if g2.button("😬 Hard", use_container_width=True): grade_clicked = "hard"
+            if g3.button("🙂 Good", use_container_width=True): grade_clicked = "good"
+            if g4.button("😎 Easy", use_container_width=True): grade_clicked = "easy"
 
-            show_answer = st.session_state.get(f"show_back_{card['id']}", False)
-            if not show_answer:
-                if st.button("👁️ Show Answer", use_container_width=True):
-                    st.session_state[f"show_back_{card['id']}"] = True
-                    st.rerun()
-            else:
-                st.markdown(f"<div class='flash-face' style='margin-top:10px;border-color:var(--accent-2);'>{card['back']}</div>", unsafe_allow_html=True)
-                st.write("How well did you know this?")
-                g1, g2, g3, g4 = st.columns(4)
-                grade_clicked = None
-                if g1.button("😵 Again", use_container_width=True): grade_clicked = "again"
-                if g2.button("😬 Hard", use_container_width=True): grade_clicked = "hard"
-                if g3.button("🙂 Good", use_container_width=True): grade_clicked = "good"
-                if g4.button("😎 Easy", use_container_width=True): grade_clicked = "easy"
-
-                if grade_clicked:
-                    for c in profile["flashcards"]:
-                        if c["id"] == card["id"]:
-                            schedule_flashcard(c, grade_clicked)
-                            break
-                    profile["analytics"]["flashcards_reviewed"] = profile["analytics"].get("flashcards_reviewed", 0) + 1
-                    add_xp(profile, XP_REWARDS["flashcard_review"], "flashcard_review")
-                    save_current()
-                    st.session_state[f"show_back_{card['id']}"] = False
-                    st.session_state.flash_review_idx = review_idx
-                    render_gamification_popups()
-                    st.rerun()
+            if grade_clicked:
+                for c in profile["flashcards"]:
+                    if c["id"] == card["id"]:
+                        schedule_flashcard(c, grade_clicked)
+                        break
+                profile["analytics"]["flashcards_reviewed"] = profile["analytics"].get("flashcards_reviewed", 0) + 1
+                add_xp(profile, XP_REWARDS["flashcard_review"], "flashcard_review")
+                profile["last_feature_used"] = "🎴"
+                save_current()
+                st.session_state[f"flash_flipped_{card['id']}"] = False
+                st.session_state.flash_review_idx = review_idx + 1
+                render_gamification_popups()
+                st.rerun()
 
     with tab_generate:
+        st.subheader("📄 Upload PDF to Generate Flashcards")
+        st.caption("Upload a PDF document and AI will extract key concepts and create flashcards from it.")
+        
+        pdf_file = st.file_uploader("Upload PDF Document:", type=["pdf"], key="flash_pdf_upload")
+        
+        if pdf_file:
+            with st.spinner("Extracting text from PDF..."):
+                pdf_text = extract_text_from_pdf(pdf_file)
+                if pdf_text and len(pdf_text) > 50:
+                    st.success(f"✅ PDF loaded successfully! Extracted {len(pdf_text)} characters.")
+                    with st.expander("Preview extracted text (first 500 characters)"):
+                        st.text(pdf_text[:500] + "...")
+                else:
+                    st.warning("Could not extract enough text from the PDF. Please try another file.")
+                    pdf_text = None
+        else:
+            pdf_text = None
+        
+        st.markdown("---")
+        st.subheader("✏️ Or Enter Topic Manually")
+        
         gen_subject = st.text_input("Subject:", value="General Knowledge", key="flash_gen_subject")
-        gen_topic = st.text_input("Topic:", key="flash_gen_topic")
+        gen_topic = st.text_area("Topic or Notes:", placeholder="Enter a topic or paste notes here...", key="flash_gen_topic")
         gen_count = st.slider("Number of flashcards:", min_value=3, max_value=20, value=8, key="flash_gen_count")
-
-        if st.button("✨ Generate Flashcards with AI"):
-            if gen_topic:
-                with st.spinner(f"Creating {gen_count} flashcards..."):
-                    prompt = build_flashcards_prompt(gen_subject, gen_topic, gen_count)
-                    raw_json = get_ai_response(prompt)
-                    try:
-                        parsed = parse_quiz_json(raw_json)
+        
+        if st.button("✨ Generate Flashcards with AI", use_container_width=True):
+            if pdf_text and len(pdf_text) > 50:
+                content_to_use = pdf_text
+                source_type = "PDF document"
+            elif gen_topic.strip():
+                content_to_use = gen_topic.strip()
+                source_type = "topic"
+            else:
+                st.warning("Please either upload a PDF or enter a topic/notes to generate flashcards.")
+                return
+            
+            with st.spinner(f"Creating {gen_count} flashcards from {source_type}..."):
+                prompt = build_flashcards_prompt(gen_subject, content_to_use, gen_count)
+                raw_json = get_ai_response(prompt)
+                try:
+                    parsed = parse_quiz_json(raw_json)
+                    if parsed and len(parsed) > 0:
                         for item in parsed:
                             profile["flashcards"].append(new_flashcard(item["front"], item["back"], gen_subject))
                         save_current()
-                        st.success(f"Added {len(parsed)} new flashcards to your deck!")
-                    except Exception:
-                        st.error("There was an error creating flashcards. Please try again.")
-            else:
-                st.warning("Please give a topic")
-
+                        st.success(f"✅ Added {len(parsed)} new flashcards to your deck from {source_type}!")
+                        
+                        with st.expander("📋 Preview generated flashcards"):
+                            for i, item in enumerate(parsed[:5]):
+                                st.markdown(f"**{i+1}.** Q: {item['front']}")
+                                st.markdown(f"   A: {item['back']}")
+                                st.divider()
+                            if len(parsed) > 5:
+                                st.caption(f"... and {len(parsed) - 5} more cards generated.")
+                    else:
+                        st.error("No flashcards were generated. Please try again with different content.")
+                except Exception as e:
+                    st.error(f"Error parsing AI response: {str(e)}")
+                    st.error("Please try again or use a different topic.")
+    
     with tab_manage:
         if not profile["flashcards"]:
-            st.info("No flashcards yet.")
+            st.markdown("""
+            <div class="empty-state">
+                <div class="empty-state-icon">🗂️</div>
+                <div class="empty-state-text">No flashcards yet</div>
+                <div class="empty-state-hint">Generate your first set of flashcards above</div>
+            </div>
+            """, unsafe_allow_html=True)
         else:
             subjects = sorted(set(c.get("subject", "General") for c in profile["flashcards"]))
+            
+            total_cards = len(profile["flashcards"])
+            total_due = len(due_cards)
+            st.info(f"📊 Total: {total_cards} cards · {total_due} due for review today")
+            
             for subj in subjects:
                 with st.expander(f"📁 {subj} ({sum(1 for c in profile['flashcards'] if c.get('subject')==subj)} cards)"):
-                    for c in [card for card in profile["flashcards"] if card.get("subject") == subj]:
+                    cards_in_subject = [c for c in profile["flashcards"] if c.get("subject") == subj]
+                    for c in cards_in_subject:
                         confirm_key = f"confirm_del_card_{c['id']}"
                         cc1, cc2 = st.columns([5, 1])
-                        cc1.markdown(f"**Q:** {c['front']}  \n**A:** {c['back']}  \n*Due: {c['due_date']} · Reps: {c['reps']}*")
+                        
+                        due_status = "🔴 Due" if c.get("due_date", today_str) <= today_str else f"📅 Due: {c.get('due_date', 'N/A')}"
+                        cc1.markdown(f"**Q:** {c['front']}  \n**A:** {c['back']}  \n*{due_status} · Reps: {c['reps']}*")
+                        
                         if not st.session_state.get(confirm_key):
                             if cc2.button("🗑️", key=f"del_card_{c['id']}"):
                                 st.session_state[confirm_key] = True
@@ -1590,6 +2081,7 @@ def show_pomodoro():
                     ai_tasks = get_ai_response(prompt).split("\n")
                     profile["todo_list"] = [t.strip("-• ").strip() for t in ai_tasks if t.strip()]
                     add_xp(profile, XP_REWARDS["task_list_created"], "task_list_created")
+                    profile["last_feature_used"] = "⏱️"
                     save_current()
                     render_gamification_popups()
 
@@ -1605,7 +2097,7 @@ def show_pomodoro():
             st.markdown(f"**Daily Progress: {progress_pct}% Completed**")
             st.progress(progress_pct)
         else:
-            st.write("You haven't created a Task List yet.")
+            st.caption("You haven't created a Task List yet.")
 
     with col2:
         st.subheader(t("⏱️ Pomodoro Timer"))
@@ -1625,16 +2117,13 @@ def _finish_pomodoro_session(profile, minutes, completed):
         profile["analytics"]["pomodoro_sessions"] += 1
         profile["pomodoro_history"].append({"date": str(date.today()), "minutes": minutes})
         add_xp(profile, XP_REWARDS["pomodoro_session"], "pomodoro_session")
+        profile["last_feature_used"] = "⏱️"
         save_current()
     else:
         st.info("Timer paused — no worries, pick up whenever you're ready.")
 
 @st.fragment(run_every=1)
 def render_pomodoro_timer():
-    # Non-blocking timer: previously this used a `time.sleep()` loop that
-    # froze the entire app for the whole session (no navigating away, no
-    # other button worked). st.fragment re-runs just this widget every
-    # second instead, so the rest of the app stays fully usable.
     _pomodoro_defaults()
     profile = current_profile()
     running = st.session_state.pomo_running
@@ -1712,6 +2201,7 @@ def show_scribble_pad():
         submitted = st.form_submit_button("➕ Add Note")
         if submitted and new_note.strip():
             profile["scribble_notes"].append(new_note.strip())
+            profile["last_feature_used"] = "✍️"
             save_current()
 
     st.write("---")
@@ -1737,7 +2227,13 @@ def show_scribble_pad():
                         st.session_state.pop(confirm_key, None)
                         st.rerun()
     else:
-        st.info("No notes found. Add a new note above.")
+        st.markdown("""
+        <div class="empty-state">
+            <div class="empty-state-icon">✍️</div>
+            <div class="empty-state-text">No notes yet</div>
+            <div class="empty-state-hint">Add your first note above to capture ideas</div>
+        </div>
+        """, unsafe_allow_html=True)
 
 def show_analytics():
     st.header(t("📊 Personal Study Analytics"))
@@ -1782,9 +2278,965 @@ def show_analytics():
         pdf = pd.DataFrame(pom_history)
         pdf = pdf.groupby("date", as_index=False).agg(minutes=("minutes", "sum"))
         st.bar_chart(data=pdf, x="date", y="minutes", use_container_width=True)
+    
+    profile["last_feature_used"] = "📊"
+    save_current()
+
+def show_audio_overview():
+    """🎧 Text-to-Speech Audio Overview - Convert notes/lessons to audio"""
+    st.header("🎧 Audio Overview Generator")
+    st.caption("Turn your notes and lessons into audio overviews for listening on the go")
+    
+    profile = current_profile()
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.subheader("📝 Content Input")
+        
+        content_source = st.radio(
+            "Choose content source:",
+            ["Paste text", "Upload PDF", "Upload Image"],
+            horizontal=True,
+            key="audio_source"
+        )
+        
+        input_text = ""
+        img = None
+        
+        if content_source == "Paste text":
+            input_text = st.text_area(
+                "Paste your notes or lesson content here:",
+                height=200,
+                placeholder="Paste your study notes, lesson content, or any text you want to convert to audio...",
+                key="audio_text_input"
+            )
+        elif content_source == "Upload PDF":
+            pdf_file = st.file_uploader("Upload PDF document:", type=["pdf"], key="audio_pdf")
+            if pdf_file:
+                with st.spinner("Extracting text from PDF..."):
+                    extracted_text = extract_text_from_pdf(pdf_file)
+                    if extracted_text and len(extracted_text) > 50:
+                        st.success(f"✅ Extracted {len(extracted_text)} characters")
+                        with st.expander("Preview extracted text"):
+                            st.text(extracted_text[:500] + "..." if len(extracted_text) > 500 else extracted_text)
+                        input_text = extracted_text
+                    else:
+                        st.warning("Could not extract enough text from the PDF. Please try another file.")
+        else:
+            img_file = st.file_uploader("Upload image (PNG, JPG):", type=["png", "jpg", "jpeg"], key="audio_img")
+            if img_file:
+                img = Image.open(img_file)
+                st.image(img, width=300, caption="Uploaded Image")
+                st.info("AI will read text from the image and convert it to audio.")
+                st.session_state.audio_img = img
+    
+    with col2:
+        st.subheader("🎵 Audio Settings")
+        
+        audio_style = st.selectbox(
+            "Audio Style:",
+            ["overview", "detailed", "study_guide"],
+            format_func=lambda x: {
+                "overview": "📊 Quick Overview",
+                "detailed": "📚 Detailed Lesson",
+                "study_guide": "📝 Study Guide"
+            }.get(x, x),
+            key="audio_style"
+        )
+        
+        speech_speed = st.slider(
+            "Speech Speed:",
+            min_value=0.5,
+            max_value=2.0,
+            value=1.0,
+            step=0.1,
+            help="1.0 is normal speed, 0.5 is half speed, 2.0 is double speed"
+        )
+        
+        voice_pitch = st.slider(
+            "Voice Pitch:",
+            min_value=0.5,
+            max_value=2.0,
+            value=1.0,
+            step=0.1,
+            help="1.0 is normal pitch"
+        )
+        
+        st.divider()
+        char_count = len(input_text)
+        st.caption(f"📊 Content length: {char_count} characters")
+        if char_count > 5000:
+            st.warning("⚠️ Long content will be truncated to 5000 characters for processing.")
+    
+    st.divider()
+    
+    if st.button("🎧 Generate Audio Overview", use_container_width=True, type="primary"):
+        if not input_text and not img:
+            st.error("Please provide content to convert to audio.")
+            return
+        
+        with st.spinner("Generating audio script with AI..."):
+            content_to_use = input_text if input_text else "Image content (analyzed by AI)"
+            prompt = build_audio_overview_prompt(content_to_use, audio_style)
+            img_to_send = st.session_state.get("audio_img") if content_source == "Upload Image" else None
+            script = get_ai_response(prompt, image=img_to_send)
+            
+            if "ERROR" in script or "⚠️" in script:
+                st.error("Failed to generate audio script. Please try again.")
+                st.write(script)
+                return
+            
+            st.session_state.audio_script = script
+            st.session_state.audio_style_used = audio_style
+            st.session_state.speech_speed = speech_speed
+            st.session_state.voice_pitch = voice_pitch
+            
+            add_xp(profile, 10, "audio_overview_created")
+            profile["last_feature_used"] = "🎧"
+            save_current()
+            render_gamification_popups()
+            
+            st.success("✅ Audio script generated successfully!")
+            st.rerun()
+    
+    if "audio_script" in st.session_state:
+        st.divider()
+        st.subheader("🎧 Audio Player")
+        
+        with st.expander("📄 View Audio Script", expanded=False):
+            st.text(st.session_state.audio_script)
+        
+        st.markdown("""
+        <div class="audio-player-container">
+            <div style="margin-bottom: 12px; font-weight: 600; color: var(--text);">
+                🔊 Audio Overview
+            </div>
+            <div class="audio-controls">
+                <button id="playAudioBtn" onclick="playAudio()">▶️ Play</button>
+                <button id="pauseAudioBtn" onclick="pauseAudio()">⏸️ Pause</button>
+                <button id="stopAudioBtn" onclick="stopAudio()">⏹️ Stop</button>
+                <span class="status-indicator" id="audioStatus">⏸️ Ready</span>
+            </div>
+        </div>
+        
+        <script>
+        let utterance = null;
+        let isPlaying = false;
+        let audioScript = null;
+        
+        function getAudioScript() {
+            if (!audioScript) {
+                const scriptElement = document.querySelector('[data-testid="stExpander"] .stMarkdown');
+                if (scriptElement) {
+                    audioScript = scriptElement.textContent || '';
+                }
+            }
+            return audioScript;
+        }
+        
+        function playAudio() {
+            const script = getAudioScript();
+            if (!script || script.trim() === '') {
+                document.getElementById('audioStatus').textContent = '⚠️ No script available';
+                return;
+            }
+            
+            window.speechSynthesis.cancel();
+            utterance = new SpeechSynthesisUtterance(script);
+            utterance.rate = 1.0;
+            utterance.pitch = 1.0;
+            utterance.volume = 1.0;
+            
+            const voices = window.speechSynthesis.getVoices();
+            if (voices.length > 0) {
+                const preferredVoice = voices.find(v => v.lang.startsWith('en') && v.name.includes('Female'));
+                if (preferredVoice) {
+                    utterance.voice = preferredVoice;
+                } else if (voices.find(v => v.lang.startsWith('en'))) {
+                    utterance.voice = voices.find(v => v.lang.startsWith('en'));
+                }
+            }
+            
+            utterance.onstart = function() {
+                isPlaying = true;
+                document.getElementById('audioStatus').textContent = '▶️ Playing...';
+                document.getElementById('playAudioBtn').disabled = true;
+            };
+            
+            utterance.onend = function() {
+                isPlaying = false;
+                document.getElementById('audioStatus').textContent = '✅ Complete';
+                document.getElementById('playAudioBtn').disabled = false;
+            };
+            
+            utterance.onerror = function(event) {
+                isPlaying = false;
+                document.getElementById('audioStatus').textContent = '⚠️ Error: ' + event.error;
+                document.getElementById('playAudioBtn').disabled = false;
+            };
+            
+            window.speechSynthesis.speak(utterance);
+            document.getElementById('audioStatus').textContent = '▶️ Starting...';
+        }
+        
+        function pauseAudio() {
+            if (window.speechSynthesis.speaking) {
+                window.speechSynthesis.pause();
+                document.getElementById('audioStatus').textContent = '⏸️ Paused';
+            } else {
+                document.getElementById('audioStatus').textContent = '⏸️ Nothing playing';
+            }
+        }
+        
+        function stopAudio() {
+            window.speechSynthesis.cancel();
+            isPlaying = false;
+            document.getElementById('audioStatus').textContent = '⏹️ Stopped';
+            document.getElementById('playAudioBtn').disabled = false;
+        }
+        
+        window.speechSynthesis.onvoiceschanged = function() {
+            window.speechSynthesis.getVoices();
+        };
+        </script>
+        """, unsafe_allow_html=True)
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            script_text = st.session_state.audio_script
+            st.download_button(
+                label="📥 Download Script (TXT)",
+                data=script_text,
+                file_name=f"audio_overview_{date.today()}.txt",
+                mime="text/plain",
+                use_container_width=True
+            )
+        
+        with col2:
+            if st.button("🔄 Regenerate Script", use_container_width=True):
+                st.session_state.pop("audio_script", None)
+                st.rerun()
+        
+        with col3:
+            if st.button("❌ Clear Audio", use_container_width=True):
+                st.session_state.pop("audio_script", None)
+                st.session_state.pop("audio_img", None)
+                st.rerun()
+        
+        with st.expander("💡 Tips for best results"):
+            st.markdown("""
+            **For best audio quality:**
+            - Keep content concise and well-structured
+            - Use short sentences for better natural speech
+            - Include section headers to help the AI organize the content
+            - The AI will automatically add natural pauses and emphasis
+            
+            **Browser compatibility:**
+            - Works best on Chrome, Edge, and Safari
+            - Firefox has limited voice support
+            - Mobile devices may use system voices
+            
+            **Troubleshooting:**
+            - If no sound plays, check your device volume
+            - Try a different browser if voices aren't available
+            - For long content, the script may take a moment to generate
+            """)
+
+def show_settings():
+    """⚙️ Settings page - consolidated language, theme, account settings"""
+    st.header("⚙️ Settings")
+    profile = current_profile()
+    
+    # Initialize custom theme with hex values only
+    if "custom_theme" not in profile:
+        profile["custom_theme"] = {
+            "enabled": False,
+            "primary_color": "#7C8CFF",
+            "secondary_color": "#C77DFF",
+            "background_start": "#05070D",
+            "background_mid": "#11141F",
+            "text_color": "#F5F7FA",
+            "card_color": "#1A1A2E",
+            "accent_color": "#1A1A2E",
+            "border_color": "#2A2A3E",
+            "background_image": None,
+            "glass_blur": 22,
+            "glass_opacity": 0.06,
+            "glass_saturation": 180,
+            "glow_intensity": 60,
+            "solid_bg": "#05070D",
+            "grad_start": "#05070D",
+            "grad_end": "#1a1a3e",
+            "grad_angle": 135,
+            "bg_blur": 0,
+            "particle_density": "Medium",
+            "particle_color": "#7C8CFF",
+            "particle_speed": 3,
+        }
+        save_current()
+        st.rerun()
+    
+    custom_theme = profile["custom_theme"]
+    
+    tab1, tab2, tab3, tab4 = st.tabs(["🌐 Language", "🎨 Theme Builder", "🔐 Account", "💾 Data"])
+    
+    with tab1:
+        st.subheader("Language Settings")
+        current_lang = profile.get("language", "en")
+        lang_options = {"en": "English", "si": "Sinhala (සිංහල)"}
+        new_lang = st.selectbox(
+            "Select your preferred language:",
+            options=list(lang_options.keys()),
+            format_func=lambda x: lang_options[x],
+            index=0 if current_lang == "en" else 1
+        )
+        if new_lang != current_lang:
+            profile["language"] = new_lang
+            save_current()
+            st.success("Language updated! The app will reload with your new language.")
+            st.rerun()
+    
+    with tab2:
+        st.subheader("🎨 Custom Theme Builder")
+        st.caption("Design your own unique color scheme and appearance for the app")
+        
+        theme_tab1, theme_tab2, theme_tab3, theme_tab4 = st.tabs(["🎨 Colors", "🖼️ Background", "✨ Glass Effects", "📦 Presets"])
+        
+        with theme_tab1:
+            st.subheader("Color Customization")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("### Primary Colors")
+                primary = st.color_picker(
+                    "Primary Color (Accent 1):",
+                    value=custom_theme.get("primary_color", "#7C8CFF"),
+                    key="theme_primary"
+                )
+                secondary = st.color_picker(
+                    "Secondary Color (Accent 2):",
+                    value=custom_theme.get("secondary_color", "#C77DFF"),
+                    key="theme_secondary"
+                )
+                
+                st.markdown("### Text Colors")
+                text = st.color_picker(
+                    "Text Color:",
+                    value=custom_theme.get("text_color", "#F5F7FA"),
+                    key="theme_text"
+                )
+            
+            with col2:
+                st.markdown("### Background Colors")
+                bg_start = st.color_picker(
+                    "Background Start:",
+                    value=custom_theme.get("background_start", "#05070D"),
+                    key="theme_bg_start"
+                )
+                bg_mid = st.color_picker(
+                    "Background Middle:",
+                    value=custom_theme.get("background_mid", "#11141F"),
+                    key="theme_bg_mid"
+                )
+                
+                st.markdown("### Card & Border Colors")
+                card = st.color_picker(
+                    "Card Background:",
+                    value=custom_theme.get("card_color", "#1A1A2E"),
+                    key="theme_card"
+                )
+                border = st.color_picker(
+                    "Border Color:",
+                    value=custom_theme.get("border_color", "#2A2A3E"),
+                    key="theme_border"
+                )
+            
+            st.markdown("---")
+            st.markdown("### 🎯 Live Preview")
+            
+            def hex_to_rgba(hex_color, alpha=0.06):
+                hex_color = hex_color.lstrip('#')
+                if len(hex_color) == 6:
+                    r, g, b = int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
+                    return f"rgba({r}, {g}, {b}, {alpha})"
+                return hex_color
+            
+            card_rgba = hex_to_rgba(card, 0.06)
+            border_rgba = hex_to_rgba(border, 0.14)
+            
+            st.markdown(f"""
+            <div class="theme-preview" style="background: linear-gradient(135deg, {bg_start} 0%, {bg_mid} 50%, {bg_start} 100%); border: 1px solid {border_rgba};">
+                <div class="preview-card" style="background: {card_rgba}; border: 1px solid {border_rgba}; color: {text};">
+                    <h3 style="color: {text};">Sample Card</h3>
+                    <p style="color: {text};">This is how your theme will look</p>
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap; margin: 10px 0;">
+                        <span class="preview-accent" style="background: linear-gradient(135deg, {primary}, {secondary});">Button</span>
+                        <span class="preview-accent" style="background: {card_rgba}; border: 1px solid {primary}; color: {text};">Secondary</span>
+                    </div>
+                    <p style="color: {text}99;">Muted text appears like this</p>
+                    <div style="background: {primary}22; border-left: 4px solid {primary}; padding: 10px; border-radius: 8px;">
+                        <p style="color: {text};">Highlighted content</p>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            if st.button("💾 Save Color Theme", use_container_width=True):
+                custom_theme["primary_color"] = primary
+                custom_theme["secondary_color"] = secondary
+                custom_theme["background_start"] = bg_start
+                custom_theme["background_mid"] = bg_mid
+                custom_theme["text_color"] = text
+                custom_theme["card_color"] = card
+                custom_theme["border_color"] = border
+                custom_theme["enabled"] = True
+                save_current()
+                st.success("✅ Color theme saved successfully!")
+                st.rerun()
+        
+        with theme_tab2:
+            st.subheader("Background Customization")
+            
+            bg_option = st.radio(
+                "Background Type:",
+                ["Solid Color", "Gradient", "Upload Image", "Particles"],
+                horizontal=True,
+                key="bg_type"
+            )
+            
+            if bg_option == "Solid Color":
+                solid_color = st.color_picker(
+                    "Choose background color:",
+                    value=custom_theme.get("solid_bg", "#05070D"),
+                    key="solid_bg"
+                )
+                custom_theme["solid_bg"] = solid_color
+                
+                st.markdown(f"""
+                <style>
+                .stApp {{
+                    background: {solid_color} !important;
+                }}
+                </style>
+                """, unsafe_allow_html=True)
+                
+            elif bg_option == "Gradient":
+                col1, col2 = st.columns(2)
+                with col1:
+                    grad_start = st.color_picker(
+                        "Gradient Start:",
+                        value=custom_theme.get("grad_start", "#05070D"),
+                        key="grad_start"
+                    )
+                with col2:
+                    grad_end = st.color_picker(
+                        "Gradient End:",
+                        value=custom_theme.get("grad_end", "#1a1a3e"),
+                        key="grad_end"
+                    )
+                
+                grad_angle = st.slider(
+                    "Gradient Angle:",
+                    min_value=0,
+                    max_value=360,
+                    value=custom_theme.get("grad_angle", 135),
+                    step=5,
+                    key="grad_angle"
+                )
+                
+                custom_theme["grad_start"] = grad_start
+                custom_theme["grad_end"] = grad_end
+                custom_theme["grad_angle"] = grad_angle
+                
+                st.markdown(f"""
+                <style>
+                .stApp {{
+                    background: linear-gradient({grad_angle}deg, {grad_start}, {grad_end}) !important;
+                }}
+                </style>
+                """, unsafe_allow_html=True)
+                
+            elif bg_option == "Upload Image":
+                st.info("Upload an image to use as your background. Recommended: 1920x1080 or larger.")
+                
+                bg_image = st.file_uploader(
+                    "Upload Background Image:",
+                    type=["jpg", "jpeg", "png", "webp"],
+                    key="bg_image_upload"
+                )
+                
+                if bg_image:
+                    import base64
+                    image_data = bg_image.getvalue()
+                    b64_image = base64.b64encode(image_data).decode()
+                    
+                    st.session_state.bg_image_data = b64_image
+                    st.image(bg_image, use_container_width=True)
+                    
+                    st.markdown(f"""
+                    <style>
+                    .stApp {{
+                        background: url(data:image/{bg_image.type.split('/')[-1]};base64,{b64_image}) !important;
+                        background-size: cover !important;
+                        background-position: center !important;
+                        background-attachment: fixed !important;
+                    }}
+                    .stApp::before {{
+                        content: "";
+                        position: fixed;
+                        top: 0;
+                        left: 0;
+                        width: 100%;
+                        height: 100%;
+                        background: rgba(0,0,0,0.4);
+                        z-index: 0;
+                    }}
+                    [data-testid="stAppViewContainer"] {{
+                        position: relative;
+                        z-index: 1;
+                    }}
+                    </style>
+                    """, unsafe_allow_html=True)
+                    
+                    st.success("✅ Background image applied!")
+                    
+                    blur_amount = st.slider(
+                        "Blur Amount:",
+                        min_value=0,
+                        max_value=20,
+                        value=custom_theme.get("bg_blur", 0),
+                        step=1,
+                        key="bg_blur"
+                    )
+                    custom_theme["bg_blur"] = blur_amount
+                    
+                    if blur_amount > 0:
+                        st.markdown(f"""
+                        <style>
+                        .stApp {{
+                            backdrop-filter: blur({blur_amount}px) !important;
+                        }}
+                        </style>
+                        """, unsafe_allow_html=True)
+            
+            elif bg_option == "Particles":
+                st.info("✨ Animated particle background (lightweight CSS animation)")
+                
+                particle_density = st.select_slider(
+                    "Particle Density:",
+                    options=["Low", "Medium", "High"],
+                    value=custom_theme.get("particle_density", "Medium"),
+                    key="particle_density"
+                )
+                
+                particle_color = st.color_picker(
+                    "Particle Color:",
+                    value=custom_theme.get("particle_color", "#7C8CFF"),
+                    key="particle_color"
+                )
+                
+                particle_speed = st.slider(
+                    "Animation Speed:",
+                    min_value=1,
+                    max_value=10,
+                    value=custom_theme.get("particle_speed", 3),
+                    step=1,
+                    key="particle_speed"
+                )
+                
+                custom_theme["particle_density"] = particle_density
+                custom_theme["particle_color"] = particle_color
+                custom_theme["particle_speed"] = particle_speed
+                
+                particle_count = {"Low": 30, "Medium": 60, "High": 100}[particle_density]
+                
+                particles_html = ""
+                for i in range(particle_count):
+                    size = 3 + (i % 5)
+                    x = i * (100 / particle_count)
+                    y = (i * 37) % 100
+                    delay = (i * 0.3) % 5
+                    duration = 5 + (i % 10)
+                    particles_html += f"""
+                    <div class="particle" style="
+                        left: {x}%;
+                        top: {y}%;
+                        width: {size}px;
+                        height: {size}px;
+                        background: {particle_color};
+                        animation-delay: {delay}s;
+                        animation-duration: {duration}s;
+                        opacity: {0.3 + (i % 5) * 0.1};
+                    "></div>
+                    """
+                
+                st.markdown(f"""
+                <style>
+                .particle-container {{
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    pointer-events: none;
+                    z-index: 0;
+                    overflow: hidden;
+                }}
+                .particle {{
+                    position: absolute;
+                    border-radius: 50%;
+                    animation: float-particle {particle_speed * 2}s ease-in-out infinite alternate;
+                }}
+                @keyframes float-particle {{
+                    0% {{ transform: translate(0, 0) scale(1); }}
+                    100% {{ transform: translate(50px, -50px) scale(1.5); }}
+                }}
+                </style>
+                <div class="particle-container">
+                    {particles_html}
+                </div>
+                """, unsafe_allow_html=True)
+                
+                st.success("✅ Particle background activated!")
+            
+            if st.button("💾 Save Background Settings", use_container_width=True):
+                save_current()
+                st.success("✅ Background settings saved!")
+                st.rerun()
+        
+        with theme_tab3:
+            st.subheader("Glass Effects Customization")
+            
+            glass_blur = st.slider(
+                "Glass Blur Intensity:",
+                min_value=5,
+                max_value=40,
+                value=custom_theme.get("glass_blur", 22),
+                step=1,
+                key="glass_blur",
+                help="Higher values create more frosted glass effect"
+            )
+            
+            glass_opacity = st.slider(
+                "Glass Opacity:",
+                min_value=0.05,
+                max_value=0.4,
+                value=custom_theme.get("glass_opacity", 0.06),
+                step=0.01,
+                key="glass_opacity",
+                help="Opacity of the glass panels"
+            )
+            
+            glass_saturation = st.slider(
+                "Color Saturation:",
+                min_value=100,
+                max_value=250,
+                value=custom_theme.get("glass_saturation", 180),
+                step=5,
+                key="glass_saturation",
+                help="Saturation of colors behind glass"
+            )
+            
+            glow_intensity = st.slider(
+                "Glow Intensity:",
+                min_value=0,
+                max_value=100,
+                value=custom_theme.get("glow_intensity", 60),
+                step=5,
+                key="glow_intensity",
+                help="Glow effect on accent colors"
+            )
+            
+            st.markdown("### Preview")
+            glass_color = f"rgba(255, 255, 255, {glass_opacity})"
+            
+            st.markdown(f"""
+            <div style="
+                background: {glass_color};
+                backdrop-filter: blur({glass_blur}px) saturate({glass_saturation}%);
+                -webkit-backdrop-filter: blur({glass_blur}px) saturate({glass_saturation}%);
+                border: 1px solid rgba(255, 255, 255, 0.14);
+                border-radius: 18px;
+                padding: 30px;
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+                color: white;
+                text-align: center;
+            ">
+                <h3>Glass Effect Preview</h3>
+                <p>Blur: {glass_blur}px | Opacity: {glass_opacity:.2f} | Saturation: {glass_saturation}%</p>
+                <div style="display: flex; gap: 10px; justify-content: center; margin-top: 10px;">
+                    <span style="background: linear-gradient(135deg, {custom_theme.get('primary_color', '#7C8CFF')}, {custom_theme.get('secondary_color', '#C77DFF')}); padding: 8px 16px; border-radius: 10px; box-shadow: 0 0 {glow_intensity}px rgba(124, 140, 255, 0.4);">Glowing Element</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            custom_theme["glass_blur"] = glass_blur
+            custom_theme["glass_opacity"] = glass_opacity
+            custom_theme["glass_saturation"] = glass_saturation
+            custom_theme["glow_intensity"] = glow_intensity
+            
+            if st.button("💾 Save Glass Settings", use_container_width=True):
+                save_current()
+                st.success("✅ Glass settings saved!")
+                st.rerun()
+        
+        with theme_tab4:
+            st.subheader("Theme Presets")
+            st.caption("Quickly apply pre-designed themes")
+            
+            presets = {
+                "Liquid Glass (Default)": {
+                    "primary": "#7C8CFF",
+                    "secondary": "#C77DFF",
+                    "bg_start": "#05070D",
+                    "bg_mid": "#11141F",
+                    "text": "#F5F7FA",
+                    "card": "#1A1A2E",
+                    "border": "#2A2A3E",
+                },
+                "Midnight Aurora": {
+                    "primary": "#00D4FF",
+                    "secondary": "#7B2FBE",
+                    "bg_start": "#0a0a1a",
+                    "bg_mid": "#1a0a2e",
+                    "text": "#E0E7FF",
+                    "card": "#0D1A2B",
+                    "border": "#1A2A4A",
+                },
+                "Warm Sunset": {
+                    "primary": "#FF6B35",
+                    "secondary": "#FFD93D",
+                    "bg_start": "#1a0a0a",
+                    "bg_mid": "#2a1510",
+                    "text": "#FFF5E6",
+                    "card": "#2A1A10",
+                    "border": "#3A2A20",
+                },
+                "Forest Calm": {
+                    "primary": "#4CAF50",
+                    "secondary": "#8BC34A",
+                    "bg_start": "#0a1a0a",
+                    "bg_mid": "#102010",
+                    "text": "#E8F5E9",
+                    "card": "#0A1A0A",
+                    "border": "#1A2A1A",
+                },
+                "Ocean Deep": {
+                    "primary": "#0077B6",
+                    "secondary": "#00B4D8",
+                    "bg_start": "#050a15",
+                    "bg_mid": "#0a1520",
+                    "text": "#E0F7FA",
+                    "card": "#0A1520",
+                    "border": "#152A3A",
+                },
+                "Neon Dream": {
+                    "primary": "#FF006E",
+                    "secondary": "#FFD93D",
+                    "bg_start": "#0a000a",
+                    "bg_mid": "#1a001a",
+                    "text": "#FFE0FF",
+                    "card": "#1A001A",
+                    "border": "#2A0A2A",
+                },
+                "Minimal Light": {
+                    "primary": "#3B82F6",
+                    "secondary": "#8B5CF6",
+                    "bg_start": "#F8FAFC",
+                    "bg_mid": "#E2E8F0",
+                    "text": "#1E293B",
+                    "card": "#FFFFFF",
+                    "border": "#CBD5E1",
+                },
+            }
+            
+            cols = st.columns(3)
+            for idx, (preset_name, preset_colors) in enumerate(presets.items()):
+                col = cols[idx % 3]
+                with col:
+                    def hex_to_rgba_preview(hex_color, alpha=0.06):
+                        hex_color = hex_color.lstrip('#')
+                        if len(hex_color) == 6:
+                            r, g, b = int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
+                            return f"rgba({r}, {g}, {b}, {alpha})"
+                        return hex_color
+                    
+                    card_rgba = hex_to_rgba_preview(preset_colors["card"], 0.06)
+                    border_rgba = hex_to_rgba_preview(preset_colors["border"], 0.14)
+                    
+                    st.markdown(f"""
+                    <div style="
+                        background: linear-gradient(135deg, {preset_colors['bg_start']}, {preset_colors['bg_mid']});
+                        border: 1px solid {border_rgba};
+                        border-radius: 14px;
+                        padding: 16px;
+                        margin: 8px 0;
+                    ">
+                        <div style="
+                            background: {card_rgba};
+                            backdrop-filter: blur(10px);
+                            border: 1px solid {border_rgba};
+                            border-radius: 10px;
+                            padding: 12px;
+                            color: {preset_colors['text']};
+                        ">
+                            <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+                                <span style="background: {preset_colors['primary']}; width: 20px; height: 20px; border-radius: 50%; display: inline-block;"></span>
+                                <span style="background: {preset_colors['secondary']}; width: 20px; height: 20px; border-radius: 50%; display: inline-block;"></span>
+                            </div>
+                            <strong>{preset_name}</strong>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    if st.button(f"Apply", key=f"preset_{idx}"):
+                        custom_theme["primary_color"] = preset_colors["primary"]
+                        custom_theme["secondary_color"] = preset_colors["secondary"]
+                        custom_theme["background_start"] = preset_colors["bg_start"]
+                        custom_theme["background_mid"] = preset_colors["bg_mid"]
+                        custom_theme["text_color"] = preset_colors["text"]
+                        custom_theme["card_color"] = preset_colors["card"]
+                        custom_theme["border_color"] = preset_colors["border"]
+                        custom_theme["enabled"] = True
+                        save_current()
+                        st.success(f"✅ Applied {preset_name} theme!")
+                        st.rerun()
+            
+            st.markdown("---")
+            if st.button("🔄 Reset to Default Theme", use_container_width=True, type="primary"):
+                custom_theme["enabled"] = False
+                save_current()
+                st.success("✅ Reset to default theme!")
+                st.rerun()
+        
+        st.markdown("---")
+        col1, col2 = st.columns([1, 3])
+        with col1:
+            enabled = st.toggle(
+                "Enable Custom Theme",
+                value=custom_theme.get("enabled", False),
+                key="theme_enabled"
+            )
+        
+        with col2:
+            if enabled:
+                st.success("🟢 Custom theme is active")
+            else:
+                st.info("⚪ Using default Liquid Glass theme")
+        
+        if enabled != custom_theme.get("enabled", False):
+            custom_theme["enabled"] = enabled
+            save_current()
+            st.rerun()
+    
+    with tab3:
+        st.subheader("Account Settings")
+        st.write(f"**Username:** {st.session_state.active_user}")
+        st.write(f"**Email:** {profile.get('email', 'Not set')}")
+        st.write(f"**Auth Method:** {profile.get('auth_provider', 'password').title()}")
+        
+        if profile.get("auth_provider") == "password":
+            st.write("---")
+            st.subheader("Change Password")
+            old_pw = st.text_input("Current Password:", type="password", key="settings_old_pw")
+            new_pw = st.text_input("New Password:", type="password", key="settings_new_pw")
+            confirm_pw = st.text_input("Confirm New Password:", type="password", key="settings_confirm_pw")
+            
+            if st.button("Update Password", key="settings_update_pw"):
+                if len(new_pw) < 8:
+                    st.error("Password must be at least 8 characters.")
+                elif new_pw != confirm_pw:
+                    st.error("Passwords don't match.")
+                elif not verify_password(old_pw, profile.get("password_hash", "")):
+                    st.error("Current password is incorrect.")
+                else:
+                    profile["password_hash"] = hash_password(new_pw)
+                    save_current()
+                    st.success("Password updated successfully!")
+        
+        if st.button("🗑️ Delete Account", use_container_width=True, key="settings_delete_account"):
+            st.warning("⚠️ This will permanently delete your account and all data. This cannot be undone.")
+            confirm = st.text_input("Type your username to confirm deletion:")
+            if st.button("Confirm Delete", use_container_width=True, key="settings_confirm_delete"):
+                if confirm == st.session_state.active_user:
+                    conn = get_db_connection()
+                    try:
+                        with _db_lock:
+                            conn.execute("DELETE FROM profiles WHERE username = ?", (st.session_state.active_user,))
+                            conn.commit()
+                    finally:
+                        conn.close()
+                    del st.session_state.all_data["users"][st.session_state.active_user]
+                    st.session_state.active_user = None
+                    st.session_state.auth_method = None
+                    st.success("Account deleted successfully.")
+                    st.rerun()
+                else:
+                    st.error("Username does not match. Deletion cancelled.")
+    
+    with tab4:
+        st.subheader("💾 Data Management")
+        
+        st.markdown("### Export Data")
+        st.caption("Download all your data as a backup file")
+        
+        if st.button("📥 Export All Data", use_container_width=True):
+            export_data = {
+                "profile": profile,
+                "username": st.session_state.active_user,
+                "export_date": str(datetime.now()),
+                "version": "1.0"
+            }
+            
+            json_data = json.dumps(export_data, indent=2, ensure_ascii=False)
+            st.download_button(
+                label="⬇️ Download Backup",
+                data=json_data,
+                file_name=f"study_organizer_backup_{date.today()}.json",
+                mime="application/json",
+                use_container_width=True
+            )
+        
+        st.markdown("---")
+        st.markdown("### Import Data")
+        st.caption("Restore your data from a backup file")
+        
+        import_file = st.file_uploader("Upload backup file:", type=["json"], key="import_backup")
+        
+        if import_file:
+            try:
+                import_data = json.load(import_file)
+                st.success("✅ Backup file loaded successfully!")
+                st.json(import_data)
+                
+                if st.button("🔄 Restore Data (WARNING: Overwrites current data)", use_container_width=True, type="primary"):
+                    if st.checkbox("I understand this will overwrite my current data"):
+                        for key, value in import_data.get("profile", {}).items():
+                            profile[key] = value
+                        save_current()
+                        st.success("✅ Data restored successfully! The app will reload.")
+                        st.rerun()
+            except Exception as e:
+                st.error(f"Error reading backup file: {str(e)}")
+        
+        st.markdown("---")
+        st.markdown("### Storage Info")
+        st.caption(f"Profile last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        
+        total_flashcards = len(profile.get("flashcards", []))
+        total_notes = len(profile.get("scribble_notes", []))
+        total_quizzes = profile.get("analytics", {}).get("quiz_taken", 0)
+        
+        col1, col2, col3 = st.columns(3)
+        col1.metric("📚 Flashcards", total_flashcards)
+        col2.metric("📝 Notes", total_notes)
+        col3.metric("❓ Quizzes Taken", total_quizzes)
 
 # PAGE ROUTING DICTIONARY WITH LABELS
 PAGES = {
+    "🏠": show_home,
     "💡": show_daily_facts,
     "🗺️": show_mindmap,
     "📝": show_summarizer,
@@ -1793,13 +3245,12 @@ PAGES = {
     "🎴": show_flashcards,
     "⏱️": show_pomodoro,
     "✍️": show_scribble_pad,
+    "🎧": show_audio_overview,
     "📊": show_analytics,
+    "⚙️": show_settings,
 }
 
 # FLOATING DOCK RADIO SELECTION
-# Reserve room on the right for the fixed dock — only on these post-login
-# pages (the login/parent-view screens don't have the dock, so they stay
-# full-width instead of being squeezed into a narrow column).
 st.markdown("""
 <style>
 [data-testid="stMainBlockContainer"] { padding-right: 240px !important; }
@@ -1809,13 +3260,68 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# Build nav options with labels for tooltips
+nav_options = list(PAGES.keys())
+nav_labels = {
+    "🏠": "Home Dashboard",
+    "💡": "Daily Facts",
+    "🗺️": "Mindmap",
+    "📝": "Summarizer",
+    "❓": "MCQ Quiz",
+    "🧠": "Math Solver",
+    "🎴": "Flashcards",
+    "⏱️": "Pomodoro",
+    "✍️": "Scribble Pad",
+    "🎧": "Audio Overview",
+    "📊": "Analytics",
+    "⚙️": "Settings",
+}
+
+# Initialize session state for navigation
+if "nav_choice" not in st.session_state:
+    profile = current_profile()
+    last_feature = profile.get("last_feature_used", "🏠")
+    st.session_state["nav_choice"] = last_feature if last_feature in PAGES else "🏠"
+
 with st.container(key="nav_dock"):
     choice = st.radio(
         "Navigation",
-        options=list(PAGES.keys()),
+        options=nav_options,
         horizontal=True,
-        label_visibility="collapsed"
+        label_visibility="collapsed",
+        key="nav_radio",
+        index=nav_options.index(st.session_state["nav_choice"])
     )
+    
+    if choice != st.session_state["nav_choice"]:
+        st.session_state["nav_choice"] = choice
+        st.rerun()
+
+# Add tooltips using CSS
+st.markdown("""
+<style>
+div[class*="st-key-nav_dock"] label[data-baseweb="radio"]:nth-child(1) { --tooltip: 'Home Dashboard'; }
+div[class*="st-key-nav_dock"] label[data-baseweb="radio"]:nth-child(2) { --tooltip: 'Daily Facts'; }
+div[class*="st-key-nav_dock"] label[data-baseweb="radio"]:nth-child(3) { --tooltip: 'Mindmap'; }
+div[class*="st-key-nav_dock"] label[data-baseweb="radio"]:nth-child(4) { --tooltip: 'Summarizer'; }
+div[class*="st-key-nav_dock"] label[data-baseweb="radio"]:nth-child(5) { --tooltip: 'MCQ Quiz'; }
+div[class*="st-key-nav_dock"] label[data-baseweb="radio"]:nth-child(6) { --tooltip: 'Math Solver'; }
+div[class*="st-key-nav_dock"] label[data-baseweb="radio"]:nth-child(7) { --tooltip: 'Flashcards'; }
+div[class*="st-key-nav_dock"] label[data-baseweb="radio"]:nth-child(8) { --tooltip: 'Pomodoro'; }
+div[class*="st-key-nav_dock"] label[data-baseweb="radio"]:nth-child(9) { --tooltip: 'Scribble Pad'; }
+div[class*="st-key-nav_dock"] label[data-baseweb="radio"]:nth-child(10) { --tooltip: 'Audio Overview'; }
+div[class*="st-key-nav_dock"] label[data-baseweb="radio"]:nth-child(11) { --tooltip: 'Analytics'; }
+div[class*="st-key-nav_dock"] label[data-baseweb="radio"]:nth-child(12) { --tooltip: 'Settings'; }
+
+div[class*="st-key-nav_dock"] label[data-baseweb="radio"]:hover::after {
+    content: var(--tooltip) !important;
+}
+</style>
+""", unsafe_allow_html=True)
 
 # EXECUTE SELECTED PAGE FUNCTION
-PAGES[choice]()
+page_to_show = st.session_state.get("nav_choice", "🏠")
+if page_to_show in PAGES:
+    PAGES[page_to_show]()
+else:
+    PAGES["🏠"]()
