@@ -880,17 +880,19 @@ def show_exam_examiner():
 def build_exam_prompt(subject, topic, difficulty, num_questions, exam_type, content):
     user_info = current_profile()
     return f"""
-    You are an AI examiner. Create {num_questions} open-ended exam questions for a student in {user_info.get('user_grade', 'Grade 8')} studying {subject}.
+    {_who_line()} {_syllabus_notice('open-ended exam questions')}
+
+    You are an AI examiner. Create {num_questions} open-ended exam questions for this student studying {subject}.
     
     Topic: {topic}
     Difficulty: {difficulty}
     Exam Type: {exam_type}
     
     IMPORTANT RULES:
-    1. Each question must be challenging but appropriate for the student's grade level
+    1. Each question must be challenging but appropriate for the student's exact grade level and age
     2. Questions must test understanding, not just memorization
     3. Include a detailed marking rubric for each question
-    4. Questions should be from the Sri Lankan syllabus content provided
+    4. Questions, terminology, and expected depth MUST strictly match the Sri Lankan local school syllabus for this student's grade — do not include concepts taught in later grades
     
     Content to base questions on: {content[:2000]}
     
@@ -906,6 +908,8 @@ def build_exam_prompt(subject, topic, difficulty, num_questions, exam_type, cont
 
 def get_exam_feedback(question, student_answer, max_marks):
     prompt = f"""
+    {_who_line()} {_syllabus_notice('exam answer feedback')}
+
     You are an AI examiner grading an exam answer.
     
     Question: {question.get('question', '')}
@@ -1264,7 +1268,9 @@ def generate_study_schedule(subject, chapters, exam_date, daily_hours, profile):
         user_info = current_profile()
         
         prompt = f"""
-        Create a study schedule for a student in {user_info.get('user_grade', 'Grade 8')} studying {subject}.
+        {_who_line()} {_syllabus_notice('a study schedule')}
+
+        Create a study schedule for this student studying {subject}. Pacing, topic breakdown, and difficulty MUST strictly match the Sri Lankan local school syllabus for their grade.
         
         Exam Date: {exam_date}
         Days Until Exam: {days_until}
@@ -1669,7 +1675,7 @@ def show_pomodoro_with_soundscapes():
         show_ambient_sound_player()
 
 def build_goal_tasks_prompt(goal):
-    return f"Break down this study goal into 4 short actionable tasks. Provide only the tasks, without numbers, one per line:\n{goal}"
+    return f"{_who_line()} {_syllabus_notice('a study goal task breakdown')} Break down this study goal into 4 short actionable tasks appropriate for this student's grade level, using the Sri Lankan school syllabus for context. Provide only the tasks, without numbers, one per line:\n{goal}"
 
 # ==================== THEME SYSTEM ====================
 
@@ -1690,9 +1696,10 @@ GLASS_TOKENS = {
     "shadow": "0 8px 32px rgba(0, 0, 0, 0.45)",
 }
 
-def apply_theme(theme=None):
+def apply_theme(theme=None, with_nav=True):
     t = GLASS_TOKENS
     root_vars = "".join(f"--{k}: {v};" for k, v in t.items())
+    nav_padding_css = '[data-testid="stMainBlockContainer"] { padding-right: 280px !important; }' if with_nav else ""
 
     st.markdown(f"""
     <style>
@@ -1757,6 +1764,31 @@ def apply_theme(theme=None):
         -webkit-backdrop-filter: blur(22px) saturate(180%);
         border: 1px solid var(--border) !important;
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), var(--shadow);
+    }}
+
+    div[data-testid="stMetric"] {{
+        border-radius: 16px !important;
+        padding: 14px 16px 16px 16px !important;
+        min-height: 92px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }}
+    div[data-testid="stMetric"] [data-testid="stMetricLabel"] {{
+        overflow: visible !important;
+        height: auto !important;
+    }}
+    div[data-testid="stMetric"] [data-testid="stMetricLabel"] p {{
+        white-space: normal !important;
+        overflow: visible !important;
+        text-overflow: unset !important;
+        line-height: 1.25 !important;
+        font-size: 0.82rem !important;
+        color: var(--muted) !important;
+    }}
+    div[data-testid="stMetric"] [data-testid="stMetricValue"] {{
+        font-size: 1.7rem !important;
+        margin-top: 2px;
     }}
 
     div[data-testid="stTextInput"] input,
@@ -1995,6 +2027,147 @@ def apply_theme(theme=None):
         transition: width 0.8s ease;
     }}
     .cbar-value {{ width: 46px; text-align: right; font-size: 0.8rem; color: var(--text); flex-shrink: 0; }}
+
+    /* ===== Right-side navigation bar ===== */
+    div.st-key-right_navbar {{
+        position: fixed !important;
+        top: 5.2rem;
+        right: 1.2rem;
+        width: 232px;
+        max-height: calc(100vh - 7rem);
+        overflow-y: auto;
+        z-index: 999;
+        padding: 1.1rem 0.85rem;
+        border-radius: 24px;
+        background: var(--dock-bg);
+        backdrop-filter: blur(26px) saturate(180%);
+        -webkit-backdrop-filter: blur(26px) saturate(180%);
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow);
+        scrollbar-width: thin;
+    }}
+    div.st-key-right_navbar::-webkit-scrollbar {{ width: 6px; }}
+    div.st-key-right_navbar::-webkit-scrollbar-thumb {{
+        background: var(--accent-soft); border-radius: 6px;
+    }}
+    div.st-key-right_navbar .stButton {{ margin-bottom: 2px; }}
+    div.st-key-right_navbar .stButton > button {{
+        width: 100% !important;
+        justify-content: flex-start !important;
+        text-align: left !important;
+        padding: 0.55rem 0.7rem !important;
+        font-size: 0.86rem !important;
+        border-radius: 12px !important;
+        transform: none !important;
+    }}
+    div.st-key-right_navbar .stButton > button:hover {{
+        transform: translateX(-3px) !important;
+    }}
+    div.st-key-right_navbar .stButton > button[kind="primary"] {{
+        background: linear-gradient(135deg, var(--accent-1), var(--accent-2)) !important;
+        border: none !important;
+        color: #FFFFFF !important;
+        box-shadow: 0 6px 18px rgba(124, 140, 255, 0.4), inset 0 1px 0 rgba(255,255,255,0.3) !important;
+    }}
+    .navbar-title {{
+        font-weight: 700; font-size: 1.0rem; letter-spacing: 0.01em;
+        padding: 0.1rem 0.35rem 0.7rem 0.35rem; color: var(--text);
+        display: flex; align-items: center; gap: 0.4rem;
+    }}
+    .navbar-group-label {{
+        font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.07em;
+        font-weight: 700; color: var(--muted-2);
+        margin: 0.85rem 0.35rem 0.3rem 0.35rem;
+    }}
+    .navbar-divider {{
+        height: 1px; background: var(--border); margin: 0.6rem 0.35rem;
+    }}
+    @media (max-width: 900px) {{
+        div.st-key-right_navbar {{
+            position: static !important;
+            width: 100% !important;
+            max-height: none !important;
+            margin-bottom: 1rem;
+        }}
+        [data-testid="stMainBlockContainer"] {{ padding-right: 2rem !important; }}
+    }}
+    {nav_padding_css}
+
+    /* ===== Auth screen (login / sign up) ===== */
+    div.st-key-auth_card {{
+        max-width: 480px;
+        margin: 3.2rem auto 2rem auto;
+        padding: 2.5rem 2.3rem 2.1rem 2.3rem;
+        border-radius: 28px;
+        background: var(--card-bg);
+        backdrop-filter: blur(30px) saturate(180%);
+        -webkit-backdrop-filter: blur(30px) saturate(180%);
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow);
+    }}
+    .auth-logo {{
+        width: 62px; height: 62px; margin: 0 auto 1rem auto;
+        border-radius: 20px;
+        background: linear-gradient(135deg, var(--accent-1), var(--accent-2));
+        display: flex; align-items: center; justify-content: center;
+        font-size: 1.9rem;
+        box-shadow: 0 8px 24px rgba(124, 140, 255, 0.45), inset 0 1px 0 rgba(255,255,255,0.3);
+    }}
+    .auth-title {{
+        text-align: center; font-weight: 700; font-size: 1.5rem;
+        margin: 0 0 0.3rem 0; color: var(--text);
+    }}
+    .auth-subtitle {{
+        text-align: center; font-size: 0.9rem; color: var(--muted);
+        margin: 0 0 1.5rem 0;
+    }}
+    .auth-divider-text {{
+        text-align: center; font-size: 0.8rem; color: var(--muted-2);
+        margin: 0.9rem 0; position: relative;
+    }}
+    div.st-key-auth_card div[data-testid="stTabs"] [data-baseweb="tab-list"] {{
+        gap: 0.35rem; border-bottom: none;
+        background: var(--track-bg); padding: 0.3rem;
+        border-radius: 14px; margin-bottom: 1.3rem;
+    }}
+    div.st-key-auth_card div[data-testid="stTabs"] [data-baseweb="tab"] {{
+        border-radius: 10px !important; padding: 0.5rem 1rem !important;
+        color: var(--muted) !important; font-weight: 600 !important;
+        flex: 1; justify-content: center;
+    }}
+    div.st-key-auth_card div[data-testid="stTabs"] [aria-selected="true"] {{
+        background: linear-gradient(135deg, var(--accent-1), var(--accent-2)) !important;
+        color: #FFFFFF !important;
+    }}
+    div.st-key-auth_card div[data-testid="stTabs"] [data-baseweb="tab-highlight"],
+    div.st-key-auth_card div[data-testid="stTabs"] [data-baseweb="tab-border"] {{
+        display: none !important;
+    }}
+    @media (max-width: 560px) {{
+        div.st-key-auth_card {{ margin: 1.2rem 0.5rem; padding: 1.8rem 1.4rem; }}
+    }}
+
+    /* ===== Home page: Quick Access tiles ===== */
+    div.st-key-quick_access_grid .stButton {{ margin-bottom: 0.9rem; }}
+    div.st-key-quick_access_grid .stButton > button {{
+        height: 96px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.35rem;
+        white-space: pre-line;
+        line-height: 1.25;
+        border-radius: 18px !important;
+        font-size: 0.86rem !important;
+        font-weight: 600 !important;
+    }}
+    div.st-key-quick_access_grid .stButton > button:first-line {{
+        font-size: 1.7rem;
+    }}
+    div.st-key-quick_access_grid .stButton > button:hover {{
+        transform: translateY(-4px) scale(1.02) !important;
+    }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -2100,7 +2273,7 @@ def language_instruction():
 # ==================== PARENT / TEACHER VIEW ====================
 
 if st.query_params.get("view") == "parent":
-    apply_theme()
+    apply_theme(with_nav=False)
     viewed_user = st.query_params.get("user", "")
 
     st.markdown("<h2 style='text-align:center;'>👀 Parent / Teacher View</h2>", unsafe_allow_html=True)
@@ -2164,123 +2337,126 @@ if st.session_state.active_user is None and is_google_auth_configured():
         pass
 
 if st.session_state.active_user is None and st.session_state.get("google_pending_email"):
-    apply_theme()
-    st.markdown("<h2 style='text-align:center;'>👋 Almost there — tell us about yourself</h2>", unsafe_allow_html=True)
-    st.caption(f"Signed in with Google as {st.session_state.google_pending_email}")
+    apply_theme(with_nav=False)
+    with st.container(key="auth_card"):
+        st.markdown('<div class="auth-logo">🎓</div>', unsafe_allow_html=True)
+        st.markdown('<div class="auth-title">Almost there!</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="auth-subtitle">Signed in as {st.session_state.google_pending_email} — tell us a bit about yourself</div>', unsafe_allow_html=True)
 
-    col1, col2 = st.columns(2)
-    with col1:
-        g_name = st.text_input("Your Name:", value=st.session_state.google_pending_name, key="g_onboard_name")
-        g_grade = st.selectbox("Grade:", [f"Grade {i}" for i in range(1, 14)], key="g_onboard_grade")
-    with col2:
-        g_age = st.number_input("Age:", min_value=5, max_value=18, value=13, key="g_onboard_age")
-        g_gender = st.selectbox("Gender:", ["Male", "Female", "Prefer not to say"], key="g_onboard_gender")
+        col1, col2 = st.columns(2)
+        with col1:
+            g_name = st.text_input("Your Name:", value=st.session_state.google_pending_name, key="g_onboard_name")
+            g_grade = st.selectbox("Grade:", [f"Grade {i}" for i in range(1, 14)], key="g_onboard_grade")
+        with col2:
+            g_age = st.number_input("Age:", min_value=5, max_value=18, value=13, key="g_onboard_age")
+            g_gender = st.selectbox("Gender:", ["Male", "Female", "Prefer not to say"], key="g_onboard_gender")
 
-    if st.button("Create your Profile 🚀", use_container_width=True, key="g_onboard_submit"):
-        clean_name = g_name.strip()
-        if not clean_name:
-            st.error("Please enter your name.")
-        else:
-            email = st.session_state.google_pending_email
-            profile = new_profile(clean_name, g_grade, g_age, g_gender)
-            profile["email"] = email
-            profile["auth_provider"] = "google"
-            st.session_state.all_data["users"][email] = profile
-            save_profile(email, profile)
-            st.session_state.active_user = email
-            st.session_state.auth_method = "google"
-            del st.session_state["google_pending_email"]
-            del st.session_state["google_pending_name"]
-            st.rerun()
+        if st.button("Create your Profile 🚀", use_container_width=True, key="g_onboard_submit"):
+            clean_name = g_name.strip()
+            if not clean_name:
+                st.error("Please enter your name.")
+            else:
+                email = st.session_state.google_pending_email
+                profile = new_profile(clean_name, g_grade, g_age, g_gender)
+                profile["email"] = email
+                profile["auth_provider"] = "google"
+                st.session_state.all_data["users"][email] = profile
+                save_profile(email, profile)
+                st.session_state.active_user = email
+                st.session_state.auth_method = "google"
+                del st.session_state["google_pending_email"]
+                del st.session_state["google_pending_name"]
+                st.rerun()
     st.stop()
 
 if st.session_state.active_user is None and not st.session_state.get("google_pending_email"):
-    apply_theme()
-    st.markdown("<h2 style='text-align:center;'>👋 Welcome to Smart Study Organizer Pro!</h2>", unsafe_allow_html=True)
+    apply_theme(with_nav=False)
+    with st.container(key="auth_card"):
+        st.markdown('<div class="auth-logo">🎓</div>', unsafe_allow_html=True)
+        st.markdown('<div class="auth-title">Welcome to Smart Study Organizer Pro!</div>', unsafe_allow_html=True)
+        st.markdown('<div class="auth-subtitle">Your all-in-one AI study companion 👋</div>', unsafe_allow_html=True)
 
-    if is_google_auth_configured():
-        gcol1, gcol2, gcol3 = st.columns([1, 2, 1])
-        with gcol2:
+        if is_google_auth_configured():
             if st.button("🔵 Continue with Google", use_container_width=True):
                 st.login()
-        st.markdown("<p style='text-align:center; color:var(--muted);'>— or use a password —</p>", unsafe_allow_html=True)
+            st.markdown('<div class="auth-divider-text">— or use a password —</div>', unsafe_allow_html=True)
 
-    tab1, tab2 = st.tabs(["🙋 Log In", "✨ Sign Up"])
+        tab1, tab2 = st.tabs(["🙋 Log In", "✨ Sign Up"])
 
-    with tab1:
-        login_id = st.text_input("Username or email:", key="login_id")
-        login_pw = st.text_input("Password:", type="password", key="login_pw")
+        with tab1:
+            login_id = st.text_input("Username or email:", key="login_id")
+            login_pw = st.text_input("Password:", type="password", key="login_pw")
 
-        if st.button("Log in ➡️", use_container_width=True):
-            identifier = login_id.strip().lower()
-            if login_rate_limited(identifier):
-                st.error("Too many failed attempts. Please wait and try again later.")
-            else:
-                key, profile = find_account(login_id)
-                if profile is None:
-                    st.error("No account found with that username or email.")
-                    record_failed_login(identifier)
-                elif profile.get("password_hash") is None:
-                    st.warning("⚠️ This account hasn't been secured with a password yet. Set one now to claim it.")
-                    new_pw = st.text_input("Set a password:", type="password", key="claim_pw")
-                    confirm_pw = st.text_input("Confirm password:", type="password", key="claim_pw2")
-                    if st.button("Secure this account", use_container_width=True, key="claim_btn"):
-                        if len(new_pw) < 8:
-                            st.error("Password must be at least 8 characters.")
-                        elif new_pw != confirm_pw:
-                            st.error("Passwords don't match.")
-                        else:
-                            profile["password_hash"] = hash_password(new_pw)
-                            save_profile(key, profile)
-                            st.session_state.active_user = key
-                            st.session_state.auth_method = "password"
-                            st.rerun()
-                elif verify_password(login_pw, profile["password_hash"]):
-                    clear_failed_logins(identifier)
-                    st.session_state.active_user = key
+            if st.button("Log in ➡️", use_container_width=True):
+                identifier = login_id.strip().lower()
+                if login_rate_limited(identifier):
+                    st.error("Too many failed attempts. Please wait and try again later.")
+                else:
+                    key, profile = find_account(login_id)
+                    if profile is None:
+                        st.error("No account found with that username or email.")
+                        record_failed_login(identifier)
+                    elif profile.get("password_hash") is None:
+                        st.warning("⚠️ This account hasn't been secured with a password yet. Set one now to claim it.")
+                        new_pw = st.text_input("Set a password:", type="password", key="claim_pw")
+                        confirm_pw = st.text_input("Confirm password:", type="password", key="claim_pw2")
+                        if st.button("Secure this account", use_container_width=True, key="claim_btn"):
+                            if len(new_pw) < 8:
+                                st.error("Password must be at least 8 characters.")
+                            elif new_pw != confirm_pw:
+                                st.error("Passwords don't match.")
+                            else:
+                                profile["password_hash"] = hash_password(new_pw)
+                                save_profile(key, profile)
+                                st.session_state.active_user = key
+                                st.session_state.auth_method = "password"
+                                st.rerun()
+                    elif verify_password(login_pw, profile["password_hash"]):
+                        clear_failed_logins(identifier)
+                        st.session_state.active_user = key
+                        st.session_state.auth_method = "password"
+                        st.rerun()
+                    else:
+                        st.error("Incorrect password.")
+                        record_failed_login(identifier)
+
+        with tab2:
+            col1, col2 = st.columns(2)
+            with col1:
+                name_input = st.text_input("Your Name:", key="signup_name")
+                email_input = st.text_input("Email:", key="signup_email")
+                grade_input = st.selectbox("Grade:", [f"Grade {i}" for i in range(1, 14)])
+            with col2:
+                age_input = st.number_input("Age:", min_value=5, max_value=18, value=13)
+                gender_input = st.selectbox("Gender:", ["Male", "Female", "Prefer not to say"])
+                pw_input = st.text_input("Password:", type="password", key="signup_pw")
+                pw_confirm = st.text_input("Confirm password:", type="password", key="signup_pw2")
+
+            if st.button("Create your Profile 🚀", use_container_width=True):
+                clean_name = name_input.strip()
+                clean_email = email_input.strip().lower()
+                existing_key, existing_profile = find_account(clean_name)
+                existing_by_email, _ = find_account(clean_email) if clean_email else (None, None)
+                if not clean_name:
+                    st.error("Please enter your name.")
+                elif not clean_email or "@" not in clean_email:
+                    st.error("Please enter a valid email address.")
+                elif existing_profile is not None or existing_by_email is not None:
+                    st.error("That name or email is already registered. Try logging in instead.")
+                elif len(pw_input) < 8:
+                    st.error("Password must be at least 8 characters.")
+                elif pw_input != pw_confirm:
+                    st.error("Passwords don't match.")
+                else:
+                    profile = new_profile(clean_name, grade_input, age_input, gender_input)
+                    profile["email"] = clean_email
+                    profile["password_hash"] = hash_password(pw_input)
+                    profile["auth_provider"] = "password"
+                    st.session_state.all_data["users"][clean_name] = profile
+                    save_profile(clean_name, profile)
+                    st.session_state.active_user = clean_name
                     st.session_state.auth_method = "password"
                     st.rerun()
-                else:
-                    st.error("Incorrect password.")
-                    record_failed_login(identifier)
-
-    with tab2:
-        col1, col2 = st.columns(2)
-        with col1:
-            name_input = st.text_input("Your Name:", key="signup_name")
-            email_input = st.text_input("Email:", key="signup_email")
-            grade_input = st.selectbox("Grade:", [f"Grade {i}" for i in range(1, 14)])
-        with col2:
-            age_input = st.number_input("Age:", min_value=5, max_value=18, value=13)
-            gender_input = st.selectbox("Gender:", ["Male", "Female", "Prefer not to say"])
-            pw_input = st.text_input("Password:", type="password", key="signup_pw")
-            pw_confirm = st.text_input("Confirm password:", type="password", key="signup_pw2")
-
-        if st.button("Create your Profile 🚀", use_container_width=True):
-            clean_name = name_input.strip()
-            clean_email = email_input.strip().lower()
-            existing_key, existing_profile = find_account(clean_name)
-            existing_by_email, _ = find_account(clean_email) if clean_email else (None, None)
-            if not clean_name:
-                st.error("Please enter your name.")
-            elif not clean_email or "@" not in clean_email:
-                st.error("Please enter a valid email address.")
-            elif existing_profile is not None or existing_by_email is not None:
-                st.error("That name or email is already registered. Try logging in instead.")
-            elif len(pw_input) < 8:
-                st.error("Password must be at least 8 characters.")
-            elif pw_input != pw_confirm:
-                st.error("Passwords don't match.")
-            else:
-                profile = new_profile(clean_name, grade_input, age_input, gender_input)
-                profile["email"] = clean_email
-                profile["password_hash"] = hash_password(pw_input)
-                profile["auth_provider"] = "password"
-                st.session_state.all_data["users"][clean_name] = profile
-                save_profile(clean_name, profile)
-                st.session_state.active_user = clean_name
-                st.session_state.auth_method = "password"
-                st.rerun()
 
     st.stop()
 
@@ -2386,21 +2562,22 @@ def show_home():
 
     st.write("")
     st.write("### Quick Access")
-    
+
     quick_links = [
-        ("💡 Daily Facts", "💡"), ("🗺️ Mindmap", "🗺️"), ("📝 Summarizer", "📝"),
-        ("🎧 Audio Overview", "🎧"), ("❓ MCQ Quiz", "❓"), ("🧠 Math Solver", "🧠"),
-        ("🎴 Flashcards", "🎴"), ("⏱️ Pomodoro", "⏱️"), ("✍️ Scribble Pad", "✍️"),
-        ("👨‍🏫 Exam Examiner", "👨‍🏫"), ("📦 Study Pack", "📦"), ("📅 Schedule", "📅"),
-        ("📊 Analytics", "📊"),
+        ("💡", "Daily Facts"), ("🗺️", "Mindmap"), ("📝", "Summarizer"),
+        ("🎧", "Audio Overview"), ("❓", "MCQ Quiz"), ("🧠", "Math Solver"),
+        ("🎴", "Flashcards"), ("⏱️", "Pomodoro"), ("✍️", "Scribble Pad"),
+        ("👨‍🏫", "Exam Examiner"), ("📦", "Study Pack"), ("📅", "Schedule"),
+        ("📊", "Analytics"),
     ]
-    
-    cols = st.columns(4)
-    for i, (label, icon) in enumerate(quick_links):
-        with cols[i % 4]:
-            if st.button(label, use_container_width=True, key=f"home_{icon}"):
-                st.session_state["nav_choice"] = icon
-                st.rerun()
+
+    with st.container(key="quick_access_grid"):
+        cols = st.columns(4)
+        for i, (icon, label) in enumerate(quick_links):
+            with cols[i % 4]:
+                if st.button(f"{icon}\n{label}", use_container_width=True, key=f"home_{icon}"):
+                    st.session_state["nav_choice"] = icon
+                    st.rerun()
 
     quiz_history = profile.get("quiz_history", [])
     if quiz_history:
@@ -2996,35 +3173,39 @@ for key, value in NAV_GROUPS.items():
     else:
         NAV_ITEMS.append((key, value))
 
-# Create a clean top bar using Streamlit's native components
+# Create a clean vertical nav bar docked to the right side of the screen
 def render_nav_bar():
-    """Render navigation as a clean horizontal bar"""
+    """Render navigation as a floating vertical panel on the right"""
     current = st.session_state.get("nav_choice", "🏠")
-    
-    # Display grouped navigation with separators
-    st.markdown("---")
-    
-    # Group navigation items into rows
-    cols_per_row = 6
-    total_items = len(NAV_ITEMS)
-    
-    for row_start in range(0, total_items, cols_per_row):
-        row_items = NAV_ITEMS[row_start:row_start + cols_per_row]
-        cols = st.columns(len(row_items))
-        
-        for idx, (nav_key, nav_label) in enumerate(row_items):
-            with cols[idx]:
-                is_active = nav_key == current
+
+    with st.container(key="right_navbar"):
+        st.markdown('<div class="navbar-title">🧭 Navigate</div>', unsafe_allow_html=True)
+
+        for key, value in NAV_GROUPS.items():
+            if isinstance(value, dict):
+                st.markdown(f'<div class="navbar-group-label">{key}</div>', unsafe_allow_html=True)
+                for nav_key, nav_label in value.items():
+                    is_active = nav_key == current
+                    if st.button(
+                        f"{nav_key}  {nav_label}",
+                        key=f"nav_btn_{nav_key}",
+                        use_container_width=True,
+                        type="primary" if is_active else "secondary"
+                    ):
+                        st.session_state.nav_choice = nav_key
+                        st.rerun()
+            else:
+                is_active = key == current
                 if st.button(
-                    nav_label,
-                    key=f"nav_btn_{nav_key}",
+                    f"{key}  {value}",
+                    key=f"nav_btn_{key}",
                     use_container_width=True,
                     type="primary" if is_active else "secondary"
                 ):
-                    st.session_state.nav_choice = nav_key
+                    st.session_state.nav_choice = key
                     st.rerun()
-    
-    st.markdown("---")
+                if key == "🏠":
+                    st.markdown('<div class="navbar-divider"></div>', unsafe_allow_html=True)
 
 # Render navigation
 render_nav_bar()
