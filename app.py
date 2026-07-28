@@ -1,6 +1,5 @@
-# app.py - Smart Study Organizer Pro with all enhancements
-
 import streamlit as st
+import streamlit.components.v1 as components
 import time
 import math
 import json
@@ -14,12 +13,17 @@ import hmac
 import sqlite3
 import threading
 import urllib.parse
+import wave
+import io
+import base64
 from datetime import date, datetime, timedelta, timezone
 import pandas as pd
 from google import genai
+from google.genai import types as genai_types
 from PIL import Image
 import PyPDF2
-
+import random
+import numpy as np
 
 try:
     from dotenv import load_dotenv
@@ -29,7 +33,6 @@ except ImportError:
 
 # PAGE CONFIG
 st.set_page_config(page_title="Smart Study Organizer Pro", page_icon="🎓", layout="wide")
-
 
 DB_FILE = "study_organizer.db"
 LEGACY_JSON_FILE = "study_organizer_data.json"
@@ -45,36 +48,49 @@ XP_REWARDS = {
     "task_list_created": 5,
     "mindmap_created": 10,
     "math_solved": 8,
+    "audio_overview_created": 10,
+    "exam_completed": 20,
+    "study_pack_exported": 5,
+    "schedule_created": 10,
 }
 
 BADGES = {
-    "first_steps":      {"label": "🌱 First Steps",        "desc": "Completed your first quiz", "icon": "🌱"},
-    "quiz_5":           {"label": "📚 Quiz Regular",        "desc": "Completed 5 quizzes", "icon": "📚"},
-    "quiz_20":          {"label": "🏆 Quiz Master",         "desc": "Completed 20 quizzes", "icon": "🏆"},
-    "perfect_score":    {"label": "💯 Perfectionist",       "desc": "Got a perfect quiz score", "icon": "💯"},
-    "pomodoro_5":       {"label": "🍅 Focus Builder",       "desc": "Finished 5 Pomodoro sessions", "icon": "🍅"},
-    "pomodoro_25":      {"label": "🔥 Deep Work Pro",       "desc": "Finished 25 Pomodoro sessions", "icon": "🔥"},
-    "streak_3":         {"label": "⚡ 3-Day Streak",        "desc": "Studied 3 days in a row", "icon": "⚡"},
-    "streak_7":         {"label": "🌟 7-Day Streak",        "desc": "Studied 7 days in a row", "icon": "🌟"},
-    "streak_30":        {"label": "👑 30-Day Streak",       "desc": "Studied 30 days in a row", "icon": "👑"},
-    "flashcard_10":     {"label": "🧠 Card Crusher",        "desc": "Reviewed 10 flashcards", "icon": "🧠"},
-    "level_5":          {"label": "🚀 Rising Star",         "desc": "Reached Level 5", "icon": "🚀"},
-    "level_10":         {"label": "🌌 Study Legend",        "desc": "Reached Level 10", "icon": "🌌"},
+    "first_steps": {"label": "🌱 First Steps", "desc": "Completed your first quiz"},
+    "quiz_5": {"label": "📚 Quiz Regular", "desc": "Completed 5 quizzes"},
+    "quiz_20": {"label": "🏆 Quiz Master", "desc": "Completed 20 quizzes"},
+    "perfect_score": {"label": "💯 Perfectionist", "desc": "Got a perfect quiz score"},
+    "pomodoro_5": {"label": "🍅 Focus Builder", "desc": "Finished 5 Pomodoro sessions"},
+    "pomodoro_25": {"label": "🔥 Deep Work Pro", "desc": "Finished 25 Pomodoro sessions"},
+    "streak_3": {"label": "⚡ 3-Day Streak", "desc": "Studied 3 days in a row"},
+    "streak_7": {"label": "🌟 7-Day Streak", "desc": "Studied 7 days in a row"},
+    "streak_30": {"label": "👑 30-Day Streak", "desc": "Studied 30 days in a row"},
+    "flashcard_10": {"label": "🧠 Card Crusher", "desc": "Reviewed 10 flashcards"},
+    "level_5": {"label": "🚀 Rising Star", "desc": "Reached Level 5"},
+    "level_10": {"label": "🌌 Study Legend", "desc": "Reached Level 10"},
+    "science_whiz": {"label": "🔬 Science Whiz", "desc": "Complete 50 science quiz questions"},
+    "math_wizard": {"label": "🧮 Math Wizard", "desc": "Complete 50 math problems correctly"},
+    "history_hero": {"label": "📜 History Hero", "desc": "Complete 30 history quiz questions"},
+    "night_owl": {"label": "🦉 Night Owl", "desc": "Complete 10 study sessions after 9 PM"},
+    "early_bird": {"label": "🌅 Early Bird", "desc": "Complete 10 study sessions before 7 AM"},
+    "streak_50": {"label": "💎 50-Day Streak", "desc": "Maintain a 50-day study streak"},
+    "streak_100": {"label": "👑 100-Day Streak", "desc": "Maintain a 100-day study streak"},
+    "perfect_exam": {"label": "🏅 Exam Master", "desc": "Score 100% on 5 exams"},
+    "flashcard_100": {"label": "📚 Card Master", "desc": "Review 100 flashcards"},
+    "pomodoro_100": {"label": "⏰ Time Lord", "desc": "Complete 100 Pomodoro sessions"},
 }
 
-# TRANSLATIONS
 TRANSLATIONS = {
     "💡 Daily Facts": "💡 දිනපතා තොරතුරු",
     "🗺️ Mindmap": "🗺️ මනසේ සිතියම",
     "📝 Summarizer": "📝 සාරාංශකරණය",
+    "🎧 Audio Overview": "🎧 ශ්‍රව්‍ය දළ විශ්ලේෂණය",
+    "Turn your notes into a short two-host podcast-style discussion you can listen to.": "ඔබේ සටහන් සවන් දිය හැකි කෙටි, ධාරකයන් දෙදෙනෙකුගේ පොඩ්කාස්ට් ශෛලියේ සංවාදයක් බවට පත් කරන්න.",
     "❓ MCQ Quiz": "❓ ප්‍රශ්නාවලිය",
     "🧠 Math Solver": "🧠 ගණිත විසඳුම",
     "🎴 Flashcards": "🎴 ෆ්ලෑෂ් කාඩ්",
     "⏱️ Pomodoro": "⏱️ පොමදෝරෝ",
     "✍️ Scribble Pad": "✍️ සටහන් පොත",
     "📊 Analytics": "📊 විශ්ලේෂණ",
-    "🏠 Home": "🏠 මුල් පිටුව",
-    "⚙️ Settings": "⚙️ සැකසුම්",
     "💡 Daily Tech & Science Facts": "💡 දෛනික තාක්ෂණික හා විද්‍යා තොරතුරු",
     "Get interesting Tech/Science facts here": "රසවත් තාක්ෂණික/විද්‍යා තොරතුරු මෙතැනින්",
     "🗺️ AI Mindmap Generator": "🗺️ AI මනසේ සිතියම් සකසනය",
@@ -108,16 +124,9 @@ TRANSLATIONS = {
     "Great job! Now take a short break. ☕": "වැඩක් කරා! දැන් කෙටි විවේකයක් ගන්න. ☕",
     "🔄 Switch Profile": "🔄 පැතිකඩ මාරු කරන්න",
     "No badges unlocked yet!": "තවම බැජ් කිසිවක් හිමි වී නැත!",
-    "🏠 Dashboard": "🏠 උපකරණ පුවරුව",
-    "Welcome back!": "ආපසු සාදරයෙන් පිළිගනිමු!",
-    "Pick up where you left off": "ඔබ නතර කළ තැනින් ආරම්භ කරන්න",
-    "Quick Actions": "ඉක්මන් ක්‍රියා",
-    "Study Progress": "අධ්‍යයන ප්‍රගතිය",
-    "Recent Activity": "මෑත ක්‍රියාකාරකම්",
 }
 
 def t(text):
-    """Translate a UI string to the active profile's language."""
     lang = st.session_state.get("app_language", "en")
     if lang == "si":
         return TRANSLATIONS.get(text, text)
@@ -143,6 +152,12 @@ DEFAULT_PROFILE = {
         "pomodoro_sessions": 0,
         "flashcards_reviewed": 0,
         "math_problems_solved": 0,
+        "audio_overviews_created": 0,
+        "science_questions": 0,
+        "history_questions": 0,
+        "perfect_exams": 0,
+        "night_sessions": 0,
+        "morning_sessions": 0,
     },
     "gamification": {
         "xp": 0,
@@ -154,35 +169,11 @@ DEFAULT_PROFILE = {
     },
     "quiz_history": [],
     "pomodoro_history": [],
-    "last_feature_used": None,
-    "last_visit_date": None,
-    "custom_theme": {
-        "enabled": False,
-        "primary_color": "#7C8CFF",
-        "secondary_color": "#C77DFF",
-        "background_start": "#05070D",
-        "background_mid": "#11141F",
-        "text_color": "#F5F7FA",
-        "card_color": "#1A1A2E",
-        "accent_color": "#1A1A2E",
-        "border_color": "#2A2A3E",
-        "background_image": None,
-        "glass_blur": 22,
-        "glass_opacity": 0.06,
-        "glass_saturation": 180,
-        "glow_intensity": 60,
-        "solid_bg": "#05070D",
-        "grad_start": "#05070D",
-        "grad_end": "#1a1a3e",
-        "grad_angle": 135,
-        "bg_blur": 0,
-        "particle_density": "Medium",
-        "particle_color": "#7C8CFF",
-        "particle_speed": 3,
-    },
+    "exam_history": [],
+    "summary_history": [],
+    "schedule_data": None,
 }
 
-# PDF HELPER FUNCTION
 def extract_text_from_pdf(pdf_file):
     try:
         reader = PyPDF2.PdfReader(pdf_file)
@@ -269,37 +260,16 @@ def save_profile(key, profile):
     finally:
         conn.close()
 
+def save_all_data(data):
+    for key, profile in data.get("users", {}).items():
+        save_profile(key, profile)
+
 def new_profile(name, grade, age, gender):
     profile = json.loads(json.dumps(DEFAULT_PROFILE))
     profile["user_name"] = name
     profile["user_grade"] = grade
     profile["user_age"] = age
     profile["user_gender"] = gender
-    return profile
-
-def migrate_theme_colors(profile):
-    """Migrate old rgba theme colors to hex values"""
-    if "custom_theme" in profile:
-        theme = profile["custom_theme"]
-        
-        # Fix rgba values in theme
-        rgba_to_hex = {
-            "rgba(255, 255, 255, 0.06)": "#1A1A2E",
-            "rgba(255, 255, 255, 0.14)": "#2A2A3E",
-            "rgba(124, 140, 255, 0.18)": "#1A1A2E",
-            "rgba(255, 255, 255, 0.08)": "#1A1A2E",
-        }
-        
-        for key in ["card_color", "accent_color", "border_color"]:
-            if key in theme and theme[key] in rgba_to_hex:
-                theme[key] = rgba_to_hex[theme[key]]
-        
-        # Ensure all required keys exist
-        default_theme = DEFAULT_PROFILE["custom_theme"]
-        for key, value in default_theme.items():
-            if key not in theme:
-                theme[key] = value
-    
     return profile
 
 def ensure_profile_shape(profile):
@@ -320,15 +290,11 @@ def ensure_profile_shape(profile):
     profile.setdefault("email", "")
     profile.setdefault("password_hash", None)
     profile.setdefault("auth_provider", "password")
-    profile.setdefault("last_feature_used", None)
-    profile.setdefault("last_visit_date", None)
-    
-    # Migrate theme colors
-    profile = migrate_theme_colors(profile)
-    
+    profile.setdefault("exam_history", [])
+    profile.setdefault("summary_history", [])
+    profile.setdefault("schedule_data", None)
     return profile
 
-# ACCOUNT SECURITY
 PBKDF2_ITERATIONS = 260_000
 
 def hash_password(password: str) -> str:
@@ -405,6 +371,32 @@ def check_badges(profile):
     if g["streak"] >= 30: award_badge(profile, "streak_30")
     if g["level"] >= 5: award_badge(profile, "level_5")
     if g["level"] >= 10: award_badge(profile, "level_10")
+    check_advanced_badges(profile)
+
+def check_advanced_badges(profile):
+    g = profile["gamification"]
+    a = profile["analytics"]
+    
+    if a.get("science_questions", 0) >= 50:
+        award_badge(profile, "science_whiz")
+    if a.get("math_problems_solved", 0) >= 50:
+        award_badge(profile, "math_wizard")
+    if a.get("history_questions", 0) >= 30:
+        award_badge(profile, "history_hero")
+    if g["streak"] >= 50:
+        award_badge(profile, "streak_50")
+    if g["streak"] >= 100:
+        award_badge(profile, "streak_100")
+    if a.get("night_sessions", 0) >= 10:
+        award_badge(profile, "night_owl")
+    if a.get("morning_sessions", 0) >= 10:
+        award_badge(profile, "early_bird")
+    if a.get("perfect_exams", 0) >= 5:
+        award_badge(profile, "perfect_exam")
+    if a.get("flashcards_reviewed", 0) >= 100:
+        award_badge(profile, "flashcard_100")
+    if a["pomodoro_sessions"] >= 100:
+        award_badge(profile, "pomodoro_100")
 
 def add_xp(profile, amount, reason=""):
     g = profile["gamification"]
@@ -442,48 +434,29 @@ def touch_daily_streak(profile):
     check_badges(profile)
 
 def render_gamification_popups():
-    """Enhanced popups with confetti/celebration effects"""
     for lvl in st.session_state.get("level_up_queue", []):
-        st.markdown(f"""
-        <div class="level-up-celebration">
-            <div class="confetti-container">
-                <div class="confetti-piece"></div>
-                <div class="confetti-piece"></div>
-                <div class="confetti-piece"></div>
-                <div class="confetti-piece"></div>
-                <div class="confetti-piece"></div>
-                <div class="confetti-piece"></div>
-                <div class="confetti-piece"></div>
-                <div class="confetti-piece"></div>
-                <div class="confetti-piece"></div>
-                <div class="confetti-piece"></div>
-            </div>
-            <div class="level-up-content">
-                🚀 Level {lvl} Unlocked!
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
         st.balloons()
-        st.toast(f"🎉 Level Up! You're now Level {lvl}!", icon="🚀")
+        st.markdown(f"""
+<div class="level-up-overlay">
+<div class="level-up-card">
+<div class="level-up-icon">🚀</div>
+<div class="level-up-title">Level Up!</div>
+<div class="level-up-sub">You're now Level {lvl}</div>
+</div>
+</div>
+""", unsafe_allow_html=True)
     st.session_state["level_up_queue"] = []
-    
     for badge_id in st.session_state.get("new_badges_queue", []):
         badge = BADGES.get(badge_id)
         if badge:
             st.markdown(f"""
-            <div class="badge-unlock">
-                <div class="badge-unlock-icon">{badge['icon']}</div>
-                <div class="badge-unlock-content">
-                    <strong>Badge Unlocked!</strong>
-                    <br>{badge['label']}
-                    <br><small>{badge['desc']}</small>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-            st.toast(f"🏅 Badge unlocked: {badge['label']}", icon="🏅")
+<div class="badge-popup">
+<span class="badge-popup-icon">🏅</span>
+<span class="badge-popup-text">Badge unlocked: <strong>{badge['label']}</strong></span>
+</div>
+""", unsafe_allow_html=True)
     st.session_state["new_badges_queue"] = []
 
-# SPACED REPETITION ENGINE
 def new_flashcard(front, back, subject):
     return {
         "id": str(uuid.uuid4())[:8],
@@ -511,7 +484,7 @@ def schedule_flashcard(card, grade):
             factor = 1.2
         elif grade == "good":
             factor = ease
-        else:
+        else:  
             ease = ease + 0.15
             factor = ease * 1.3
         interval = 1 if interval == 0 else max(1, round(interval * factor))
@@ -560,7 +533,7 @@ def get_client():
 def get_ai_response(prompt, image=None):
     client = get_client()
     if client is None:
-        return "⚠️ **No Gemini API key found.** Please add your API key."
+        return "⚠️ **No Gemini API key found.** Please add your API key to use AI features. The app will use offline mode for basic functionality."
     try:
         contents_list = [prompt]
         if image is not None:
@@ -573,8 +546,49 @@ def get_ai_response(prompt, image=None):
     except Exception as e:
         err_text = str(e)
         if "401" in err_text or "UNAUTHENTICATED" in err_text:
-            return f"⚠️ **API Key error:** {err_text}"
-        return f"ERROR: {err_text}"
+            return "⚠️ **API key authentication failed.** Please check your API key and try again. Using offline mode."
+        return f"ERROR: Please check your internet connection ({err_text})"
+
+def generate_audio_overview_wav(script_text):
+    client = get_client()
+    if client is None:
+        return None, "No Gemini API key found"
+    try:
+        response = client.models.generate_content(
+            model="gemini-3.1-flash-tts-preview",
+            contents=script_text,
+            config=genai_types.GenerateContentConfig(
+                response_modalities=["AUDIO"],
+                speech_config=genai_types.SpeechConfig(
+                    multi_speaker_voice_config=genai_types.MultiSpeakerVoiceConfig(
+                        speaker_voice_configs=[
+                            genai_types.SpeakerVoiceConfig(
+                                speaker="Host1",
+                                voice_config=genai_types.VoiceConfig(
+                                    prebuilt_voice_config=genai_types.PrebuiltVoiceConfig(voice_name="Kore")
+                                ),
+                            ),
+                            genai_types.SpeakerVoiceConfig(
+                                speaker="Host2",
+                                voice_config=genai_types.VoiceConfig(
+                                    prebuilt_voice_config=genai_types.PrebuiltVoiceConfig(voice_name="Puck")
+                                ),
+                            ),
+                        ]
+                    )
+                ),
+            ),
+        )
+        pcm_data = response.candidates[0].content.parts[0].inline_data.data
+        buffer = io.BytesIO()
+        with wave.open(buffer, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(24000)
+            wf.writeframes(pcm_data)
+        return buffer.getvalue(), None
+    except Exception as e:
+        return None, str(e)
 
 def parse_quiz_json(raw_text):
     cleaned = raw_text.strip()
@@ -599,7 +613,1066 @@ def parse_quiz_json(raw_text):
             return ast.literal_eval(block)
     raise ValueError("Could not parse quiz JSON")
 
-# THEME SYSTEM — "Liquid Glass" Enhanced
+# ==================== OFFLINE CONTENT MANAGER ====================
+
+class OfflineContentManager:
+    def __init__(self):
+        self.offline_questions = self.load_offline_questions()
+        self.offline_flashcards = self.load_offline_flashcards()
+        self.offline_facts = self.load_offline_facts()
+    
+    def is_online(self):
+        return get_client() is not None
+    
+    def load_offline_questions(self):
+        return {
+            "Science": {
+                "Easy": [
+                    {"question": "What is photosynthesis?", "A": "Process of making food", "B": "Plant reproduction", "C": "Water absorption", "D": "Nutrient transport", "correct": "A"},
+                    {"question": "What is the chemical symbol for water?", "A": "H2O", "B": "CO2", "C": "NaCl", "D": "HCl", "correct": "A"},
+                    {"question": "What organ pumps blood in the human body?", "A": "Liver", "B": "Heart", "C": "Lungs", "D": "Kidney", "correct": "B"},
+                    {"question": "What is the process of cell division called?", "A": "Mitosis", "B": "Photosynthesis", "C": "Respiration", "D": "Digestion", "correct": "A"},
+                    {"question": "What is the pH of pure water?", "A": "5", "B": "7", "C": "9", "D": "11", "correct": "B"},
+                ],
+                "Medium": [
+                    {"question": "What is the law of conservation of mass?", "A": "Matter cannot be created or destroyed", "B": "Energy cannot be created", "C": "Atoms are indivisible", "D": "Molecules move randomly", "correct": "A"},
+                    {"question": "What is the function of mitochondria?", "A": "Energy production", "B": "Protein synthesis", "C": "Cell division", "D": "Waste removal", "correct": "A"},
+                ]
+            },
+            "Math": {
+                "Easy": [
+                    {"question": "What is 7 x 8?", "A": "48", "B": "56", "C": "64", "D": "72", "correct": "B"},
+                    {"question": "What is the square root of 81?", "A": "7", "B": "8", "C": "9", "D": "10", "correct": "C"},
+                    {"question": "What is 15 + 27?", "A": "42", "B": "52", "C": "32", "D": "62", "correct": "A"},
+                ],
+                "Medium": [
+                    {"question": "What is the area of a triangle with base 6 and height 4?", "A": "12", "B": "24", "C": "48", "D": "10", "correct": "A"},
+                    {"question": "What is 25% of 200?", "A": "25", "B": "50", "C": "75", "D": "100", "correct": "B"},
+                ]
+            },
+            "History": {
+                "Easy": [
+                    {"question": "Who was the first president of Sri Lanka?", "A": "D.S. Senanayake", "B": "J.R. Jayawardene", "C": "S.W.R.D. Bandaranaike", "D": "R. Premadasa", "correct": "A"},
+                    {"question": "In which year did Sri Lanka gain independence?", "A": "1946", "B": "1947", "C": "1948", "D": "1949", "correct": "C"},
+                ]
+            }
+        }
+    
+    def load_offline_flashcards(self):
+        return [
+            {"front": "What is the largest planet?", "back": "Jupiter", "subject": "Science"},
+            {"front": "What is 2 + 2?", "back": "4", "subject": "Math"},
+            {"front": "What is the capital of Sri Lanka?", "back": "Sri Jayawardenepura Kotte", "subject": "Geography"},
+            {"front": "What is photosynthesis?", "back": "Process where plants make food using sunlight", "subject": "Science"},
+            {"front": "What is the atomic number of oxygen?", "back": "8", "subject": "Science"},
+            {"front": "What is the formula for area of a circle?", "back": "πr²", "subject": "Math"},
+            {"front": "Who invented the telephone?", "back": "Alexander Graham Bell", "subject": "History"},
+            {"front": "What is the boiling point of water?", "back": "100°C", "subject": "Science"},
+            {"front": "What is the largest ocean?", "back": "Pacific Ocean", "subject": "Geography"},
+            {"front": "What is the square root of 144?", "back": "12", "subject": "Math"},
+        ]
+    
+    def load_offline_facts(self):
+        return [
+            "💡 The average human brain has about 86 billion neurons.",
+            "💡 A day on Venus is longer than its year.",
+            "💡 Bananas are technically berries, while strawberries are not.",
+            "💡 The world's oldest known living tree is over 5,000 years old.",
+            "💡 The human body contains about 60% water.",
+            "💡 The speed of light is approximately 299,792,458 meters per second.",
+            "💡 Antarctica is the largest desert on Earth.",
+            "💡 The Great Wall of China is over 13,000 miles long.",
+            "💡 A group of flamingos is called a 'flamboyance'.",
+            "💡 The Eiffel Tower can grow up to 6 inches taller in summer.",
+        ]
+    
+    def get_offline_quiz(self, subject, difficulty):
+        subject_data = self.offline_questions.get(subject, {})
+        questions = subject_data.get(difficulty, subject_data.get("Easy", []))
+        return questions[:5]
+    
+    def get_offline_fact(self, index=None):
+        if index is None:
+            index = random.randint(0, len(self.offline_facts) - 1)
+        return self.offline_facts[index % len(self.offline_facts)]
+
+# ==================== EXAM EXAMINER FEATURE ====================
+
+def show_exam_examiner():
+    st.header("🤖 Interactive AI Exam Examiner Mode")
+    st.caption("Answer open-ended questions and get detailed feedback from an AI examiner")
+    
+    profile = current_profile()
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        subject = st.text_input("Subject:", value="Science", key="exam_subject")
+        topic = st.text_input("Topic/Chapter:", key="exam_topic")
+        num_questions = st.slider("Number of questions:", 1, 5, 3, key="exam_count")
+    with col2:
+        difficulty = st.select_slider("Difficulty:", ["Beginner", "Intermediate", "Advanced"], value="Intermediate", key="exam_difficulty")
+        exam_type = st.selectbox("Exam Type:", ["Theory", "Application", "Mixed"], key="exam_type")
+    
+    exam_file = st.file_uploader("Upload notes/PDF to base questions on:", type=["pdf", "txt"], key="exam_upload")
+    
+    if st.button("📝 Generate Exam Questions", use_container_width=True):
+        if topic or exam_file:
+            with st.spinner("AI is generating exam questions..."):
+                content = topic or ""
+                if exam_file:
+                    if exam_file.name.endswith(".pdf"):
+                        content += "\n" + extract_text_from_pdf(exam_file)
+                    else:
+                        content += "\n" + exam_file.read().decode('utf-8')
+                
+                offline_manager = OfflineContentManager()
+                if offline_manager.is_online():
+                    prompt = build_exam_prompt(subject, topic, difficulty, num_questions, exam_type, content)
+                    raw_response = get_ai_response(prompt)
+                    try:
+                        exam_data = parse_exam_json(raw_response)
+                        st.session_state.current_exam = exam_data
+                        st.session_state.exam_subject = subject
+                        st.session_state.exam_answers = {}
+                        st.session_state.exam_graded = False
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Could not generate exam questions: {e}")
+                        offline_questions = offline_manager.get_offline_quiz(subject, difficulty)
+                        if offline_questions:
+                            st.session_state.current_exam = [{"question": q["question"], "marks": 5, "rubric": "Based on standard marking", "topic": subject} for q in offline_questions]
+                            st.session_state.exam_subject = subject
+                            st.session_state.exam_answers = {}
+                            st.session_state.exam_graded = False
+                            st.info("Using offline questions as fallback")
+                            st.rerun()
+                else:
+                    offline_questions = offline_manager.get_offline_quiz(subject, difficulty)
+                    if offline_questions:
+                        st.session_state.current_exam = [{"question": q["question"], "marks": 5, "rubric": "Based on standard marking", "topic": subject} for q in offline_questions]
+                        st.session_state.exam_subject = subject
+                        st.session_state.exam_answers = {}
+                        st.session_state.exam_graded = False
+                        st.info("📶 Offline Mode - Using pre-loaded questions")
+                        st.rerun()
+                    else:
+                        st.warning("No offline questions available for this subject. Try 'Science' or 'Math'.")
+        else:
+            st.warning("Please provide a topic or upload notes")
+    
+    if st.session_state.get("current_exam") and not st.session_state.get("exam_graded", False):
+        exam = st.session_state.current_exam
+        st.write("---")
+        st.write("### ✍️ Answer the following questions:")
+        st.caption("💡 Be thorough - the AI examiner will grade based on completeness, accuracy, and structure")
+        
+        for idx, q in enumerate(exam):
+            st.markdown(f"#### Question {idx+1}: {q.get('question', '')}")
+            st.caption(f"*Marks: {q.get('marks', 5)} | Topic: {q.get('topic', 'General')}*")
+            
+            if q.get('rubric'):
+                with st.expander("📋 View Marking Rubric"):
+                    st.markdown(q['rubric'])
+            
+            answer = st.text_area(f"Your Answer (Q{idx+1}):", key=f"exam_ans_{idx}", height=150)
+            st.session_state.exam_answers[idx] = answer
+        
+        if st.button("📊 Submit for Grading", use_container_width=True, type="primary"):
+            if all(ans.strip() for ans in st.session_state.exam_answers.values()):
+                st.session_state.exam_graded = True
+                st.rerun()
+            else:
+                st.warning("Please answer all questions before submitting")
+    
+    if st.session_state.get("exam_graded", False):
+        exam = st.session_state.current_exam
+        total_marks = 0
+        earned_marks = 0
+        
+        st.write("---")
+        st.write("### 📊 Grading Results")
+        
+        for idx, q in enumerate(exam):
+            student_answer = st.session_state.exam_answers.get(idx, "")
+            
+            with st.expander(f"📝 Question {idx+1} Feedback", expanded=(idx==0)):
+                offline_manager = OfflineContentManager()
+                if offline_manager.is_online():
+                    with st.spinner(f"Grading question {idx+1}..."):
+                        feedback = get_exam_feedback(q, student_answer, q.get('marks', 5))
+                        
+                        try:
+                            feedback_data = parse_feedback_json(feedback)
+                            marks_awarded = feedback_data.get('marks_awarded', 0)
+                            max_marks = feedback_data.get('max_marks', q.get('marks', 5))
+                            total_marks += max_marks
+                            earned_marks += marks_awarded
+                            
+                            st.markdown(f"**Marks: {marks_awarded}/{max_marks}**")
+                            st.progress(marks_awarded/max_marks if max_marks > 0 else 0)
+                            
+                            st.markdown("#### 📋 Examiner Feedback")
+                            st.markdown(feedback_data.get('feedback', ''))
+                            
+                            st.markdown("#### 💡 Suggested Improvement")
+                            st.markdown(feedback_data.get('improvement', ''))
+                            
+                            st.markdown("#### 🎯 Model Answer Key Points")
+                            for point in feedback_data.get('model_answer', []):
+                                st.markdown(f"- {point}")
+                        except:
+                            st.write(feedback)
+                else:
+                    word_count = len(student_answer.split())
+                    marks_awarded = min(q.get('marks', 5), max(0, word_count // 10))
+                    total_marks += q.get('marks', 5)
+                    earned_marks += marks_awarded
+                    st.markdown(f"**Marks: {marks_awarded}/{q.get('marks', 5)}**")
+                    st.info("📶 Offline Mode - Basic grading based on answer length")
+        
+        st.write("---")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("📊 Total Score", f"{earned_marks}/{total_marks}")
+        with col2:
+            percentage = int((earned_marks/total_marks)*100) if total_marks > 0 else 0
+            st.metric("🎯 Percentage", f"{percentage}%")
+        with col3:
+            grade = get_grade(percentage)
+            st.metric("🏆 Grade", grade)
+        
+        profile = current_profile()
+        xp_earned = min(20, int(earned_marks / max(1, total_marks) * 20))
+        add_xp(profile, xp_earned, "exam_completed")
+        
+        profile.setdefault("exam_history", [])
+        profile["exam_history"].append({
+            "date": str(date.today()),
+            "subject": st.session_state.exam_subject,
+            "score": earned_marks,
+            "total": total_marks,
+            "questions": len(exam)
+        })
+        
+        if percentage >= 100:
+            profile["analytics"]["perfect_exams"] = profile["analytics"].get("perfect_exams", 0) + 1
+        
+        save_current()
+        
+        if percentage >= 90:
+            st.balloons()
+            st.success("🌟 Outstanding performance! You're an exam champion!")
+        elif percentage >= 70:
+            st.success("📚 Good work! Keep practicing to reach higher!")
+        elif percentage >= 50:
+            st.info("💪 Keep studying! Review the feedback above to improve.")
+        else:
+            st.warning("📖 Time to review! Use the feedback to understand where you can improve.")
+        
+        render_gamification_popups()
+        
+        if st.button("🔄 Start New Exam"):
+            st.session_state.pop("current_exam", None)
+            st.session_state.exam_graded = False
+            st.session_state.exam_answers = {}
+            st.rerun()
+
+def build_exam_prompt(subject, topic, difficulty, num_questions, exam_type, content):
+    user_info = current_profile()
+    return f"""
+    You are an AI examiner. Create {num_questions} open-ended exam questions for a student in {user_info.get('user_grade', 'Grade 8')} studying {subject}.
+    
+    Topic: {topic}
+    Difficulty: {difficulty}
+    Exam Type: {exam_type}
+    
+    IMPORTANT RULES:
+    1. Each question must be challenging but appropriate for the student's grade level
+    2. Questions must test understanding, not just memorization
+    3. Include a detailed marking rubric for each question
+    4. Questions should be from the Sri Lankan syllabus content provided
+    
+    Content to base questions on: {content[:2000]}
+    
+    Return EXACTLY a JSON array with {num_questions} objects, each with:
+    - "question": the exam question text
+    - "topic": the specific subtopic
+    - "marks": number of marks (5-10)
+    - "rubric": detailed marking criteria as a string
+    - "expected_key_points": list of key points expected in a good answer
+    
+    Format as a raw JSON array only, no additional text or explanation.
+    """
+
+def get_exam_feedback(question, student_answer, max_marks):
+    prompt = f"""
+    You are an AI examiner grading an exam answer.
+    
+    Question: {question.get('question', '')}
+    Expected Key Points: {question.get('expected_key_points', [])}
+    Marking Rubric: {question.get('rubric', '')}
+    
+    Student Answer: {student_answer[:1000]}
+    Maximum Marks: {max_marks}
+    
+    Provide detailed feedback including:
+    1. Marks awarded (integer 0-{max_marks})
+    2. Detailed feedback explaining what was good and what was missing
+    3. Specific improvements the student can make
+    4. A model answer outline with key points that should have been covered
+    
+    Return as a JSON object with keys: "marks_awarded", "max_marks", "feedback", "improvement", "model_answer" (array)
+    """
+    return get_ai_response(prompt)
+
+def parse_feedback_json(raw):
+    try:
+        cleaned = raw.strip()
+        cleaned = re.sub(r"^```json|```$", "", cleaned)
+        return json.loads(cleaned)
+    except:
+        return {"marks_awarded": 0, "max_marks": 5, "feedback": raw, "improvement": "Unable to parse feedback", "model_answer": []}
+
+def parse_exam_json(raw):
+    cleaned = raw.strip()
+    cleaned = re.sub(r"^```json|```$", "", cleaned)
+    return json.loads(cleaned)
+
+def get_grade(percentage):
+    if percentage >= 90: return "A+ 🏆"
+    elif percentage >= 80: return "A 📚"
+    elif percentage >= 70: return "B 💪"
+    elif percentage >= 60: return "C 📖"
+    elif percentage >= 50: return "D 🔄"
+    else: return "F 📝"
+
+# ==================== STUDY PACK EXPORTER ====================
+
+def show_study_pack_exporter():
+    st.header("📑 Automated Study Pack Exporter")
+    st.caption("Export your study materials as a printable PDF or Anki-compatible package")
+    
+    profile = current_profile()
+    
+    export_type = st.selectbox(
+        "Export Format:",
+        ["📄 PDF Study Pack", "🃏 Anki Package (.apkg)", "📋 Combined Notes"]
+    )
+    
+    st.subheader("📦 Select Materials to Include")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        include_flashcards = st.checkbox("📝 Flashcards", value=True)
+        include_notes = st.checkbox("📒 Scribble Notes", value=True)
+        include_quiz_results = st.checkbox("📊 Quiz Results", value=True)
+    
+    with col2:
+        include_exam_results = st.checkbox("📝 Exam Results", value=True)
+        include_summaries = st.checkbox("📋 Summaries", value=True)
+        include_schedule = st.checkbox("📅 Study Schedule", value=True)
+    
+    all_subjects = set()
+    for card in profile.get("flashcards", []):
+        all_subjects.add(card.get("subject", "General"))
+    subject_filter = st.multiselect("Filter by Subject:", sorted(list(all_subjects)), key="export_subjects")
+    
+    if st.button("📥 Generate Study Pack", use_container_width=True, type="primary"):
+        with st.spinner("Generating your study pack..."):
+            content = build_study_pack_content(
+                profile,
+                include_flashcards,
+                include_notes,
+                include_quiz_results,
+                include_exam_results,
+                include_summaries,
+                include_schedule,
+                subject_filter
+            )
+            
+            if export_type.startswith("📄"):
+                try:
+                    pdf_bytes = generate_study_pdf(content, profile)
+                    st.download_button(
+                        "⬇️ Download PDF Study Pack",
+                        data=pdf_bytes,
+                        file_name=f"study_pack_{date.today()}.pdf",
+                        mime="application/pdf"
+                    )
+                except Exception as e:
+                    st.warning(f"PDF generation failed: {e}")
+                    st.download_button(
+                        "⬇️ Download as Text (Fallback)",
+                        data=content,
+                        file_name=f"study_pack_{date.today()}.txt",
+                        mime="text/plain"
+                    )
+            elif export_type.startswith("🃏"):
+                apkg_bytes = generate_anki_package(profile, subject_filter)
+                if apkg_bytes:
+                    st.download_button(
+                        "⬇️ Download Anki Package",
+                        data=apkg_bytes,
+                        file_name=f"flashcards_{date.today()}.apkg",
+                        mime="application/zip"
+                    )
+            else:
+                st.text_area("📋 Combined Notes Preview", value=content, height=400)
+                st.download_button(
+                    "⬇️ Download as Text",
+                    data=content,
+                    file_name=f"study_notes_{date.today()}.txt",
+                    mime="text/plain"
+                )
+            
+            add_xp(profile, XP_REWARDS["study_pack_exported"], "study_pack_exported")
+            save_current()
+            render_gamification_popups()
+
+def build_study_pack_content(profile, include_flashcards, include_notes, include_quiz_results, 
+                            include_exam_results, include_summaries, include_schedule, subject_filter):
+    content = f"""
+    ========================================
+    STUDY PACK - {date.today()}
+    Student: {profile.get('user_name', '')} | Grade: {profile.get('user_grade', '')}
+    ========================================
+    
+    """
+    
+    if include_flashcards and profile.get("flashcards"):
+        content += "\n📝 FLASHCARDS\n" + "-" * 40 + "\n"
+        for card in profile["flashcards"]:
+            subject = card.get("subject", "General")
+            if subject_filter and subject not in subject_filter:
+                continue
+            content += f"\nSubject: {subject}\nQ: {card.get('front', '')}\nA: {card.get('back', '')}\nDue: {card.get('due_date', '')}\n" + "-" * 20 + "\n"
+    
+    if include_notes and profile.get("scribble_notes"):
+        content += "\n📒 SCRIBBLE NOTES\n" + "-" * 40 + "\n"
+        for i, note in enumerate(profile["scribble_notes"], 1):
+            content += f"\nNote {i}:\n{note}\n" + "-" * 20 + "\n"
+    
+    if include_quiz_results and profile.get("quiz_history"):
+        content += "\n📊 QUIZ HISTORY\n" + "-" * 40 + "\n"
+        for entry in profile["quiz_history"]:
+            content += f"\n{entry.get('date', '')} - {entry.get('subject', '')}\nScore: {entry.get('score', 0)}/{entry.get('total', 0)}\n" + "-" * 20 + "\n"
+    
+    if include_exam_results and profile.get("exam_history"):
+        content += "\n📝 EXAM HISTORY\n" + "-" * 40 + "\n"
+        for entry in profile["exam_history"]:
+            content += f"\n{entry.get('date', '')} - {entry.get('subject', '')}\nScore: {entry.get('score', 0)}/{entry.get('total', 0)}\nQuestions: {entry.get('questions', 0)}\n" + "-" * 20 + "\n"
+    
+    if include_summaries and profile.get("summary_history"):
+        content += "\n📋 NOTE SUMMARIES\n" + "-" * 40 + "\n"
+        for summary in profile.get("summary_history", []):
+            content += f"\n{summary.get('date', '')}\n{summary.get('content', '')}\n" + "-" * 20 + "\n"
+    
+    if include_schedule and profile.get("schedule_data"):
+        content += "\n📅 STUDY SCHEDULE\n" + "-" * 40 + "\n"
+        schedule = profile["schedule_data"]
+        content += f"Subject: {schedule.get('subject', '')}\nExam Date: {schedule.get('exam_date', '')}\n"
+        for day in schedule.get('days', [])[:7]:
+            content += f"\n{day.get('date', '')}: {', '.join(day.get('topics', []))}\n"
+    
+    content += "\n" + "=" * 50 + "\nEND OF STUDY PACK\n"
+    content += f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+    return content
+
+def generate_study_pdf(content, profile):
+    try:
+        from reportlab.lib.pagesizes import letter
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.enums import TA_CENTER
+        from reportlab.lib.units import inch
+        
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=letter)
+        styles = getSampleStyleSheet()
+        
+        title_style = ParagraphStyle('CustomTitle', parent=styles['Heading1'], fontSize=24, alignment=TA_CENTER, spaceAfter=30)
+        heading_style = ParagraphStyle('CustomHeading', parent=styles['Heading2'], fontSize=18, spaceAfter=12, textColor='#1a1a2e')
+        normal_style = ParagraphStyle('CustomNormal', parent=styles['Normal'], fontSize=11, spaceAfter=6, leading=14)
+        
+        story = [Paragraph("📚 Study Pack", title_style), Spacer(1, 0.2*inch)]
+        story.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}", styles['Normal']))
+        story.append(Spacer(1, 0.2*inch))
+        
+        lines = content.split('\n')
+        for line in lines:
+            if line.strip() and not line.startswith('='):
+                if any(line.startswith(prefix) for prefix in ['📝', '📒', '📊', '📋', '📅']):
+                    story.append(Paragraph(line, heading_style))
+                else:
+                    story.append(Paragraph(line.replace('-', '•'), normal_style))
+        
+        doc.build(story)
+        return buffer.getvalue()
+    except ImportError:
+        return content.encode('utf-8')
+
+def generate_anki_package(profile, subject_filter):
+    try:
+        import zipfile
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            collection = {"decks": {}, "cards": [], "notes": [], "models": {}}
+            model_id = 1234567890
+            collection["models"] = {
+                str(model_id): {
+                    "id": model_id,
+                    "name": "Basic",
+                    "flds": [{"name": "Front"}, {"name": "Back"}],
+                    "tmpls": [{"name": "Card 1", "qfmt": "{{Front}}", "afmt": "{{FrontSide}}\n\n<hr id=answer>\n\n{{Back}}"}],
+                    "css": ".card { font-family: arial; font-size: 20px; text-align: center; color: black; background-color: white; }"
+                }
+            }
+            deck_id = 987654321
+            collection["decks"][str(deck_id)] = {"id": deck_id, "name": "Study Organizer Flashcards"}
+            note_id_counter = 1
+            for card in profile.get("flashcards", []):
+                subject = card.get("subject", "General")
+                if subject_filter and subject not in subject_filter:
+                    continue
+                note = {
+                    "id": note_id_counter,
+                    "mid": model_id,
+                    "flds": [f"{subject}: {card.get('front', '')}", card.get('back', '')],
+                    "tags": [subject],
+                    "mod": int(time.time())
+                }
+                collection["notes"].append(note)
+                collection["cards"].append({
+                    "id": note_id_counter * 10,
+                    "nid": note_id_counter,
+                    "did": deck_id,
+                    "ord": 0,
+                    "mod": int(time.time()),
+                    "type": 0,
+                    "queue": 0,
+                    "due": 0,
+                    "ivl": 0,
+                    "factor": 0,
+                    "lapses": 0
+                })
+                note_id_counter += 1
+            zip_file.writestr("collection.json", json.dumps(collection))
+        return buffer.getvalue()
+    except Exception as e:
+        st.error(f"Could not generate Anki package: {e}")
+        return None
+
+# ==================== STUDY SCHEDULE BUILDER ====================
+
+def show_study_schedule_builder():
+    st.header("📅 AI Adaptive Study Schedule Builder")
+    st.caption("Enter your exam date and chapters - get a personalized study plan")
+    
+    profile = current_profile()
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        exam_subject = st.text_input("Subject:", value="Science", key="schedule_subject")
+        exam_date = st.date_input("Exam Date:", min_value=date.today() + timedelta(days=7), key="exam_date")
+    with col2:
+        chapters = st.text_area("Chapters to cover (one per line):", height=100, key="schedule_chapters")
+        daily_study_hours = st.slider("Daily Study Hours Available:", 0.5, 4.0, 1.5, 0.5, key="study_hours")
+    
+    if st.button("📅 Generate Study Schedule", use_container_width=True, type="primary"):
+        if exam_subject and chapters and exam_date > date.today():
+            with st.spinner("AI is creating your personalized study schedule..."):
+                schedule_data = generate_study_schedule(
+                    exam_subject, 
+                    chapters.split('\n'), 
+                    exam_date, 
+                    daily_study_hours,
+                    profile
+                )
+                
+                if schedule_data:
+                    profile["schedule_data"] = schedule_data
+                    st.session_state.schedule_data = schedule_data
+                    st.session_state.schedule_generated = True
+                    add_xp(profile, XP_REWARDS["schedule_created"], "schedule_created")
+                    save_current()
+                    st.rerun()
+        else:
+            st.warning("Please fill in all fields and ensure the exam date is in the future")
+    
+    if st.session_state.get("schedule_generated", False) or profile.get("schedule_data"):
+        schedule = st.session_state.get("schedule_data") or profile.get("schedule_data")
+        if schedule:
+            days_until_exam = (schedule['exam_date'] - date.today()).days if isinstance(schedule.get('exam_date'), date) else 0
+            
+            st.write("---")
+            st.subheader(f"📚 Your Study Plan for {schedule['subject']}")
+            
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("📅 Days Until Exam", days_until_exam)
+            with col2:
+                st.metric("📖 Chapters", len(schedule.get('chapters', [])))
+            with col3:
+                total_hours = sum(day.get('study_hours', 0) for day in schedule.get('days', []))
+                st.metric("⏱️ Total Study Hours", f"{total_hours:.1f}h")
+            with col4:
+                st.metric("🔄 Reviews", schedule.get('total_reviews', 0))
+            
+            st.subheader("📋 Day-by-Day Study Plan")
+            
+            for i, day in enumerate(schedule.get('days', [])):
+                with st.expander(f"📅 {day.get('date', '')} - {day.get('day_name', '')}", expanded=(i < 3)):
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        st.markdown(f"**Topics:** {', '.join(day.get('topics', []))}")
+                        if day.get('review_topics'):
+                            st.markdown(f"🔄 **Review:** {', '.join(day.get('review_topics', []))}")
+                        st.markdown("**Study Tasks:**")
+                        for task in day.get('tasks', []):
+                            st.markdown(f"- {task}")
+                    with col2:
+                        st.metric("⏱️ Study", f"{day.get('study_hours', 0):.1f}h")
+                        st.metric("🎯 Goals", day.get('quiz_goal', 0))
+                        if day.get('completed', False):
+                            st.success("✅ Completed")
+                        else:
+                            st.info("⏳ Pending")
+            
+            st.subheader("🎯 Quiz Milestones")
+            for milestone in schedule.get('milestones', []):
+                st.markdown(f"**Day {milestone.get('day', 0)}:** {milestone.get('quiz_subject', '')} - {milestone.get('chapters', '')}")
+                st.caption(f"{milestone.get('description', '')}")
+            
+            render_gamification_popups()
+            
+            if st.button("📤 Export Schedule"):
+                schedule_text = format_schedule_to_text(schedule)
+                st.download_button(
+                    "⬇️ Download Schedule",
+                    data=schedule_text,
+                    file_name=f"study_schedule_{date.today()}.txt",
+                    mime="text/plain"
+                )
+
+def generate_study_schedule(subject, chapters, exam_date, daily_hours, profile):
+    try:
+        offline_manager = OfflineContentManager()
+        if not offline_manager.is_online():
+            return generate_offline_schedule(subject, chapters, exam_date, daily_hours)
+        
+        days_until = (exam_date - date.today()).days
+        user_info = current_profile()
+        
+        prompt = f"""
+        Create a study schedule for a student in {user_info.get('user_grade', 'Grade 8')} studying {subject}.
+        
+        Exam Date: {exam_date}
+        Days Until Exam: {days_until}
+        Daily Study Hours: {daily_hours}
+        Chapters to Cover: {chapters}
+        
+        Create an adaptive schedule with:
+        1. Spaced repetition reviews
+        2. Pomodoro session recommendations (25 min sessions)
+        3. Daily quiz milestones
+        4. Progressive difficulty increase
+        
+        Return as a JSON object with:
+        - "subject": the subject name
+        - "exam_date": the exam date as string (YYYY-MM-DD)
+        - "chapters": list of chapters
+        - "days": array of day objects, each with:
+          - "date": date string (YYYY-MM-DD)
+          - "day_name": "Monday", etc.
+          - "topics": list of topics to study
+          - "review_topics": list of topics to review
+          - "study_hours": number
+          - "tasks": list of specific tasks
+          - "quiz_goal": number of quiz questions
+          - "completed": false
+        - "milestones": array of milestone objects
+        - "total_reviews": number of planned reviews
+        """
+        
+        response = get_ai_response(prompt)
+        cleaned = re.sub(r"^```json|```$", "", response.strip())
+        schedule = json.loads(cleaned)
+        
+        if isinstance(schedule.get('exam_date'), str):
+            schedule['exam_date'] = datetime.strptime(schedule['exam_date'], '%Y-%m-%d').date()
+        
+        return schedule
+    except Exception as e:
+        st.error(f"Could not generate schedule: {e}")
+        return generate_offline_schedule(subject, chapters, exam_date, daily_hours)
+
+def generate_offline_schedule(subject, chapters, exam_date, daily_hours):
+    days_until = (exam_date - date.today()).days
+    if days_until <= 0:
+        return None
+    
+    chapter_list = [c.strip() for c in chapters if c.strip()]
+    if not chapter_list:
+        chapter_list = ["Chapter 1", "Chapter 2", "Chapter 3"]
+    
+    schedule = {
+        "subject": subject,
+        "exam_date": exam_date,
+        "chapters": chapter_list,
+        "days": [],
+        "milestones": [],
+        "total_reviews": 0
+    }
+    
+    chapters_per_day = max(1, len(chapter_list) // min(days_until, 7))
+    
+    for i in range(min(days_until, 14)):
+        day_date = date.today() + timedelta(days=i)
+        topics = []
+        start_idx = i * chapters_per_day
+        end_idx = min(start_idx + chapters_per_day, len(chapter_list))
+        if start_idx < len(chapter_list):
+            topics = chapter_list[start_idx:end_idx]
+        else:
+            topics = ["Review Day"]
+        
+        review_topics = []
+        if i > 0 and i % 3 == 0:
+            prev_idx = max(0, (i - 1) * chapters_per_day)
+            prev_end = min(prev_idx + chapters_per_day, len(chapter_list))
+            review_topics = chapter_list[prev_idx:prev_end]
+        
+        day = {
+            "date": str(day_date),
+            "day_name": day_date.strftime("%A"),
+            "topics": topics,
+            "review_topics": review_topics,
+            "study_hours": daily_hours,
+            "tasks": [f"Study {topic}" for topic in topics],
+            "quiz_goal": 5 if len(topics) > 0 else 0,
+            "completed": False
+        }
+        schedule["days"].append(day)
+        
+        if i % 3 == 0 and i > 0:
+            schedule["milestones"].append({
+                "day": i,
+                "quiz_subject": subject,
+                "chapters": ", ".join(topics),
+                "description": f"Quiz on {', '.join(topics)}"
+            })
+    
+    schedule["total_reviews"] = len([d for d in schedule["days"] if d.get('review_topics')])
+    return schedule
+
+def format_schedule_to_text(schedule):
+    text = f"""
+    ========================================
+    STUDY SCHEDULE
+    ========================================
+    
+    Subject: {schedule.get('subject', '')}
+    Exam Date: {schedule.get('exam_date', '')}
+    Created: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+    
+    ========================================
+    DAILY PLAN
+    ========================================
+    
+    """
+    for day in schedule.get('days', []):
+        text += f"""
+    📅 {day.get('date', '')} ({day.get('day_name', '')})
+    ----------------------------------------
+    Study Hours: {day.get('study_hours', 0)}h
+    Topics: {', '.join(day.get('topics', []))}
+    
+    """
+        if day.get('review_topics'):
+            text += f"Review: {', '.join(day.get('review_topics', []))}\n"
+        text += "\nTasks:\n"
+        for task in day.get('tasks', []):
+            text += f"  - {task}\n"
+        text += "\n"
+    return text
+
+# ==================== AMBIENT FOCUS SOUNDSCAPES ====================
+
+def show_ambient_sound_player():
+    st.subheader("🎵 Ambient Focus Soundscapes")
+    st.caption("Background audio to help maintain deep focus during study sessions")
+    
+    sound_options = {
+        "🌧️ Rain": "rain",
+        "🎵 Lo-Fi Beats": "lofi", 
+        "🌊 Ocean Waves": "ocean",
+        "🔥 Fire Crackling": "fire",
+        "🌿 Forest": "forest",
+        "🤫 White Noise": "white_noise"
+    }
+    
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        selected_sound = st.selectbox("Select a soundscape:", list(sound_options.keys()))
+    with col2:
+        volume = st.slider("Volume:", 0, 100, 50)
+    
+    sound_data = generate_ambient_sound(sound_options[selected_sound], volume)
+    
+    if sound_data:
+        st.markdown(f"""
+        <div style="background: var(--card-bg); border-radius: 14px; padding: 16px; margin: 10px 0; border: 1px solid var(--border);">
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <span style="font-size: 1.5rem;">{selected_sound.split()[0]}</span>
+                <audio controls style="flex: 1; height: 40px; background: transparent; border-radius: 20px;">
+                    <source src="data:audio/wav;base64,{sound_data}" type="audio/wav">
+                </audio>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-top: 8px; font-size: 0.8rem; color: var(--muted);">
+                <span>🎯 Focus Mode</span>
+                <span>💡 Helps maintain concentration</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.info("🎧 Soundscape player ready - select a sound and press play")
+
+def generate_ambient_sound(sound_type, volume):
+    try:
+        sample_rate = 22050
+        duration = 180
+        
+        t = np.linspace(0, duration, int(sample_rate * duration))
+        
+        if sound_type == "rain":
+            noise = np.random.normal(0, 0.5, len(t))
+            filtered = np.convolve(noise, np.exp(-np.linspace(0, 0.1, 100)), mode='same')
+            filtered = filtered / np.max(np.abs(filtered))
+            audio = filtered * (volume / 100) * 0.5
+            
+        elif sound_type == "lofi":
+            beat = np.sin(2 * np.pi * 1.5 * t) * 0.25
+            melody = np.sin(2 * np.pi * 220 * t) * 0.15 + np.sin(2 * np.pi * 277 * t) * 0.1
+            melody += np.sin(2 * np.pi * 330 * t) * 0.08
+            crackle = np.random.normal(0, 0.02, len(t))
+            audio = (beat + melody + crackle) * (volume / 100)
+            
+        elif sound_type == "ocean":
+            wave1 = np.sin(2 * np.pi * 0.2 * t) * np.exp(-t * 0.001)
+            wave2 = np.sin(2 * np.pi * 0.15 * t + 1.2) * np.exp(-t * 0.002)
+            noise = np.random.normal(0, 0.15, len(t)) * np.exp(-t * 0.003)
+            audio = (wave1 * 0.3 + wave2 * 0.3 + noise * 0.4) * (volume / 100)
+            
+        elif sound_type == "fire":
+            crackles = np.random.exponential(0.02, len(t))
+            crackle_envelope = np.exp(-t * 0.01) * 0.3 + 0.1
+            rumble = np.sin(2 * np.pi * 0.5 * t) * 0.05
+            audio = (crackles * crackle_envelope + rumble) * (volume / 100)
+            
+        elif sound_type == "forest":
+            wind = np.random.normal(0, 0.1, len(t)) * (0.5 + 0.5 * np.sin(2 * np.pi * 0.01 * t))
+            chirp = np.sin(2 * np.pi * 800 * t) * np.exp(-((t % 2) * 10)) * 0.05
+            audio = (wind + chirp) * (volume / 100)
+            
+        else:
+            audio = np.random.normal(0, 0.3, len(t)) * (volume / 100)
+        
+        audio = np.clip(audio, -1, 1)
+        audio_int16 = (audio * 32767).astype(np.int16)
+        
+        buffer = io.BytesIO()
+        with wave.open(buffer, 'wb') as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(sample_rate)
+            wf.writeframes(audio_int16.tobytes())
+        
+        return base64.b64encode(buffer.getvalue()).decode('utf-8')
+    except Exception as e:
+        return None
+
+# ==================== MCQUIZ WITH OFFLINE SUPPORT ====================
+
+def show_mcq_quiz_with_offline():
+    st.header(t("❓ AI Anti-Cheat MCQ Quiz"))
+    st.caption(t("Test your knowledge with questions based on the Sri Lankan Syllabus."))
+    
+    offline_manager = OfflineContentManager()
+    is_online = offline_manager.is_online()
+    
+    if not is_online:
+        st.warning("📶 Offline Mode Active - Using pre-loaded questions")
+    else:
+        st.info("🌐 Online Mode - AI generating questions")
+    
+    subject = st.text_input("Subject — e.g. Science, History, Maths:", value="General Knowledge")
+    q_file = st.file_uploader("Upload Notes to test yourself (PDF, PNG, JPG):", type=["pdf", "png", "jpg", "jpeg"])
+    topic = st.text_input("Topic of lesson:")
+    difficulty = st.select_slider("Difficulty:", options=["Easy", "Medium", "Hard"], value="Medium")
+    num_questions = st.slider("Number of questions:", min_value=1, max_value=20, value=5)
+    
+    q_img = None
+    pdf_text = ""
+    if q_file:
+        if q_file.name.lower().endswith(".pdf"):
+            pdf_text = extract_text_from_pdf(q_file)
+            st.success("PDF loaded successfully!")
+        else:
+            q_img = Image.open(q_file)
+            st.image(q_img, width=300)
+    
+    if st.button("Get your MCQ questions 🎯"):
+        if q_file or topic:
+            with st.spinner(f"{num_questions} questions are being created..."):
+                if is_online:
+                    combined_context = (topic or "") + "\n" + pdf_text
+                    prompt = build_quiz_prompt(
+                        subject, difficulty, num_questions,
+                        combined_context if combined_context.strip() else "see attached image"
+                    )
+                    raw_json = get_ai_response(prompt, image=q_img)
+                    try:
+                        st.session_state.quiz_list = parse_quiz_json(raw_json)
+                        st.session_state.quiz_subject = subject
+                        st.session_state.quiz_answers = {}
+                        st.session_state.quiz_checked = False
+                        st.success("✅ Questions generated successfully!")
+                    except Exception as e:
+                        st.error(f"AI generation failed. Switching to offline mode...")
+                        st.session_state.quiz_list = offline_manager.get_offline_quiz(subject, difficulty)
+                        st.session_state.quiz_subject = subject
+                        st.session_state.quiz_answers = {}
+                        st.session_state.quiz_checked = False
+                else:
+                    st.session_state.quiz_list = offline_manager.get_offline_quiz(subject, difficulty)
+                    st.session_state.quiz_subject = subject
+                    st.session_state.quiz_answers = {}
+                    st.session_state.quiz_checked = False
+                    if st.session_state.quiz_list:
+                        st.info("📶 Using offline questions")
+                    else:
+                        st.warning("No offline questions available. Try 'Science', 'Math', or 'History'.")
+        else:
+            st.warning("Please give a topic or upload a file.")
+    
+    if "quiz_list" in st.session_state and st.session_state.quiz_list:
+        st.write("---")
+        st.write("### ✍️ Answer the questions:")
+
+        for idx, q in enumerate(st.session_state.quiz_list):
+            st.markdown(f"#### **Question {idx+1}:** {q['question']}")
+            options = [f"A) {q['A']}", f"B) {q['B']}", f"C) {q['C']}", f"D) {q['D']}"]
+            user_choice = st.radio(f"q_{idx}", options, key=f"q_ans_{idx}", label_visibility="collapsed")
+            st.session_state.quiz_answers[idx] = user_choice[0]
+            st.write("")
+
+        if st.button("Submit Answers ✔️") and not st.session_state.get("quiz_checked", False):
+            st.session_state.quiz_checked = True
+            score = 0
+            for idx, q in enumerate(st.session_state.quiz_list):
+                if st.session_state.quiz_answers.get(idx, "-") == q["correct"]:
+                    score += 1
+
+            total_qs = len(st.session_state.quiz_list)
+            profile = current_profile()
+            profile["analytics"]["quiz_taken"] += 1
+            profile["analytics"]["total_score"] += score
+            profile["analytics"]["total_questions"] += total_qs
+            
+            subject_lower = st.session_state.quiz_subject.lower()
+            if "science" in subject_lower:
+                profile["analytics"]["science_questions"] = profile["analytics"].get("science_questions", 0) + total_qs
+            elif "history" in subject_lower:
+                profile["analytics"]["history_questions"] = profile["analytics"].get("history_questions", 0) + total_qs
+            
+            profile["quiz_history"].append({
+                "date": str(date.today()),
+                "subject": st.session_state.get("quiz_subject", "General"),
+                "score": score,
+                "total": total_qs,
+            })
+            add_xp(profile, score * XP_REWARDS["quiz_question_correct"], "quiz_question_correct")
+            add_xp(profile, XP_REWARDS["quiz_complete"], "quiz_complete")
+            if total_qs > 0 and score == total_qs:
+                award_badge(profile, "perfect_score")
+            save_current()
+
+        if st.session_state.get("quiz_checked", False):
+            score = 0
+            st.write("---")
+            st.write("### 📊 Result Summary:")
+            for idx, q in enumerate(st.session_state.quiz_list):
+                u_ans = st.session_state.quiz_answers.get(idx, "-")
+                if u_ans == q["correct"]:
+                    score += 1
+                render_quiz_result_card(idx, q, u_ans)
+
+            total_qs = len(st.session_state.quiz_list)
+            st.markdown(f"## 🏆 Total Score: **{score} / {total_qs}**")
+            if score == total_qs:
+                st.balloons()
+                st.success("Perfect! All questions are correct! 🥳")
+            render_gamification_popups()
+
+# ==================== POMODORO WITH SOUNDSCAPES ====================
+
+def show_pomodoro_with_soundscapes():
+    st.header(t("⏱️ Pomodoro & Goal Progress Tracker"))
+    
+    tab1, tab2 = st.tabs(["⏱️ Timer", "🎵 Soundscapes"])
+    
+    with tab1:
+        col1, col2 = st.columns(2)
+        profile = current_profile()
+
+        with col1:
+            st.subheader(t("🤖 AI Auto Task Generator"))
+            goal = st.text_input("What is your goal today?")
+            if st.button("Make Your Task List 📋"):
+                if goal:
+                    with st.spinner("Your task list is being created by AI..."):
+                        offline_manager = OfflineContentManager()
+                        if offline_manager.is_online():
+                            prompt = build_goal_tasks_prompt(goal)
+                            ai_tasks = get_ai_response(prompt).split("\n")
+                        else:
+                            ai_tasks = [
+                                f"Break down {goal} into parts",
+                                f"Research {goal}",
+                                f"Practice {goal}",
+                                f"Review {goal} knowledge"
+                            ]
+                        profile["todo_list"] = [t.strip("-• ").strip() for t in ai_tasks if t.strip()]
+                        add_xp(profile, XP_REWARDS["task_list_created"], "task_list_created")
+                        save_current()
+                        render_gamification_popups()
+
+            st.write("---")
+            st.subheader(t("🎯 Study Goal Tracker"))
+            todo_list = profile["todo_list"]
+            checked_count = 0
+            if todo_list:
+                for i, task in enumerate(todo_list):
+                    if st.checkbox(task, key=f"saved_task_{i}"):
+                        checked_count += 1
+                progress_pct = int((checked_count / len(todo_list)) * 100)
+                st.markdown(f"**Daily Progress: {progress_pct}% Completed**")
+                st.progress(progress_pct)
+            else:
+                st.write("You haven't created a Task List yet.")
+
+        with col2:
+            st.subheader(t("⏱️ Pomodoro Timer"))
+            render_pomodoro_timer()
+    
+    with tab2:
+        show_ambient_sound_player()
+
+def build_goal_tasks_prompt(goal):
+    return f"Break down this study goal into 4 short actionable tasks. Provide only the tasks, without numbers, one per line:\n{goal}"
+
+# ==================== THEME SYSTEM ====================
+
 GLASS_TOKENS = {
     "bg": "#05070D",
     "bg-elevated": "#11141F",
@@ -626,7 +1699,7 @@ def apply_theme(theme=None):
     
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
 
-    :root {{ {root_vars} }}
+  :root {{ {root_vars} }}
 
     [data-testid="stMain"] p, 
     [data-testid="stMain"] h1, 
@@ -676,25 +1749,16 @@ def apply_theme(theme=None):
         [data-testid="stMainBlockContainer"] {{ animation: none; }}
     }}
 
-    /* Enhanced Glass Effects */
     .profile-card, .streak-pill, .pomo-ring-inner, .flash-face,
     div[data-testid="stMetric"], div[data-testid="stExpander"],
-    div[data-testid="stForm"], .home-card, .quick-action-card {{
+    div[data-testid="stForm"] {{
         background: var(--card-bg) !important;
         backdrop-filter: blur(22px) saturate(180%);
         -webkit-backdrop-filter: blur(22px) saturate(180%);
         border: 1px solid var(--border) !important;
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), var(--shadow);
-        border-radius: 18px;
-        padding: 20px;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    }}
-    .home-card:hover, .quick-action-card:hover {{
-        transform: translateY(-4px);
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 12px 40px rgba(0, 0, 0, 0.5);
     }}
 
-    /* Inputs */
     div[data-testid="stTextInput"] input,
     div[data-testid="stNumberInput"] input,
     div[data-testid="stTextArea"] textarea,
@@ -711,149 +1775,36 @@ def apply_theme(theme=None):
         color: var(--text) !important;
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
     }}
+    div[data-testid="stTextInput"] input:focus,
+    div[data-testid="stNumberInput"] input:focus,
+    div[data-testid="stTextArea"] textarea:focus,
+    div[data-testid="stSelectbox"] div[data-baseweb="select"]:focus-within > div {{
+        border-color: var(--accent-1) !important;
+        box-shadow: 0 0 0 3px var(--accent-soft) !important;
+    }}
 
-    /* Floating dock navigation with tooltips */
-    div[class*="st-key-nav_dock"] div[data-testid="stRadio"] {{
-        position: fixed !important;
-        right: 20px !important;
-        top: 50% !important;
-        transform: translateY(-50%) !important;
-        left: auto !important;
-        z-index: 999999 !important;
-        background: var(--dock-bg) !important;
+    div[data-baseweb="popover"] div[data-baseweb="menu"] {{
+        background: var(--bg-elevated) !important;
         backdrop-filter: blur(24px) saturate(180%) !important;
         -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
         border: 1px solid var(--border) !important;
-        padding: 10px 8px !important;
-        border-radius: 22px !important;
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), -5px 10px 30px rgba(0, 0, 0, 0.4);
-        max-height: 90vh !important;
-        width: auto !important;
-        transition: background 0.3s ease, border-color 0.3s ease;
-    }}
-    div[class*="st-key-nav_dock"] div[data-testid="stRadio"] > div {{
-        display: flex !important;
-        flex-direction: column !important;
-        gap: 6px !important;
-    }}
-    div[class*="st-key-nav_dock"] div[data-testid="stRadio"] label {{
-        display: flex !important;
-        align-items: center !important;
-        gap: 0 !important;
-        background: transparent !important;
-        padding: 8px 12px !important;
         border-radius: 14px !important;
-        color: var(--muted) !important;
-        cursor: pointer !important;
-        font-size: 0.82rem !important;
-        font-weight: 500 !important;
-        transition: all 0.2s ease !important;
-        white-space: nowrap !important;
-        position: relative !important;
-        margin: 0 !important;
+        box-shadow: var(--shadow) !important;
     }}
-    div[class*="st-key-nav_dock"] div[data-testid="stRadio"] label:hover {{
+    div[data-baseweb="popover"] li, div[data-baseweb="popover"] li * {{
         color: var(--text) !important;
+    }}
+    div[data-baseweb="popover"] li:hover {{
         background: var(--accent-soft) !important;
     }}
-    div[class*="st-key-nav_dock"] div[data-testid="stRadio"] label .st-emotion-cache-1f5stn {{
-        display: none !important;
-    }}
-    div[class*="st-key-nav_dock"] div[data-testid="stRadio"] label .st-emotion-cache-1p1m4ay {{
-        display: none !important;
-    }}
-    div[class*="st-key-nav_dock"] div[data-testid="stRadio"] label .st-emotion-cache-1q1hqs3 {{
-        display: none !important;
-    }}
-    div[class*="st-key-nav_dock"] div[data-testid="stRadio"] label .st-emotion-cache-1v0mbdj {{
-        display: none !important;
-    }}
 
-    div[class*="st-key-nav_dock"] div[data-testid="stRadio"] label .st-emotion-cache-1l284xh {{
-        display: none !important;
+    div[data-testid="stSlider"] [data-baseweb="slider"] > div:nth-child(2) {{
+        background: var(--track-bg) !important;
     }}
-
-    div[class*="st-key-nav_dock"] div[data-testid="stRadio"] label .st-emotion-cache-1vzeuhh {{
-        margin: 0 !important;
-        padding: 0 !important;
-    }}
-
-    div[class*="st-key-nav_dock"] div[data-testid="stRadio"] label[data-baseweb="radio"] {{
-        background: transparent !important;
-    }}
-    div[class*="st-key-nav_dock"] div[data-testid="stRadio"] label[data-baseweb="radio"][aria-checked="true"] {{
-        background: linear-gradient(135deg, var(--accent-1) 0%, var(--accent-2) 100%) !important;
-        color: #FFFFFF !important;
-        font-weight: 600 !important;
-        box-shadow: 0 4px 16px rgba(124, 140, 255, 0.4) !important;
-    }}
-
-    div[class*="st-key-nav_dock"] div[data-testid="stRadio"] label[data-baseweb="radio"]:hover::after {{
-        content: attr(data-tooltip);
-        position: absolute;
-        right: calc(100% + 14px);
-        top: 50%;
-        transform: translateY(-50%);
-        background: var(--bg-elevated);
-        color: var(--text);
-        padding: 4px 12px;
-        border-radius: 8px;
-        font-size: 0.75rem;
-        white-space: nowrap;
-        border: 1px solid var(--border);
-        box-shadow: var(--shadow);
-        font-weight: 500;
-        letter-spacing: 0.3px;
-        pointer-events: none;
-        z-index: 1000000;
-    }}
-    div[class*="st-key-nav_dock"] div[data-testid="stRadio"] label[data-baseweb="radio"]:hover::before {{
-        content: '';
-        position: absolute;
-        right: calc(100% + 8px);
-        top: 50%;
-        transform: translateY(-50%);
-        border: 6px solid transparent;
-        border-left-color: var(--bg-elevated);
-        z-index: 1000000;
-    }}
-
-    @media (max-width: 900px) {{
-        div[class*="st-key-nav_dock"] div[data-testid="stRadio"] {{
-            top: auto !important;
-            bottom: 0 !important;
-            right: 0 !important;
-            left: 0 !important;
-            transform: none !important;
-            width: 100% !important;
-            max-height: none !important;
-            border-radius: 22px 22px 0 0 !important;
-            border-bottom: none !important;
-            padding: 8px 4px !important;
-        }}
-        div[class*="st-key-nav_dock"] div[data-testid="stRadio"] > div {{
-            flex-direction: row !important;
-            overflow-x: auto !important;
-            justify-content: flex-start !important;
-            gap: 2px !important;
-            padding: 0 4px;
-        }}
-        div[class*="st-key-nav_dock"] div[data-testid="stRadio"] label[data-baseweb="radio"] {{
-            font-size: 0.75rem !important;
-            padding: 6px 10px !important;
-            flex-shrink: 0;
-        }}
-        div[class*="st-key-nav_dock"] div[data-testid="stRadio"] label[data-baseweb="radio"]:hover::after {{
-            display: none !important;
-        }}
-        div[class*="st-key-nav_dock"] div[data-testid="stRadio"] label[data-baseweb="radio"]:hover::before {{
-            display: none !important;
-        }}
-        [data-testid="stMainBlockContainer"] {{
-            padding-right: 1.2rem !important;
-            padding-left: 1.2rem !important;
-            padding-bottom: 96px !important;
-        }}
+    div[data-testid="stSlider"] [role="slider"] {{
+        background: linear-gradient(135deg, var(--accent-1), var(--accent-2)) !important;
+        border: 2px solid rgba(255, 255, 255, 0.6) !important;
+        box-shadow: 0 0 0 4px var(--accent-soft), 0 2px 10px rgba(0, 0, 0, 0.4) !important;
     }}
 
     .stButton > button {{
@@ -874,216 +1825,15 @@ def apply_theme(theme=None):
         border-color: transparent !important;
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 10px 30px rgba(124, 140, 255, 0.45) !important;
     }}
+    .stButton > button:active {{
+        transform: translateY(0px) scale(0.98) !important;
+        box-shadow: 0 2px 8px rgba(124, 140, 255, 0.3) !important;
+    }}
+    .stButton > button:focus-visible {{
+        outline: 2px solid var(--accent-1) !important;
+        outline-offset: 2px !important;
+    }}
 
-    /* Flashcard 3D Flip */
-    .flashcard-container {{
-        perspective: 1000px;
-        margin: 20px 0;
-    }}
-    .flashcard {{
-        position: relative;
-        width: 100%;
-        min-height: 200px;
-        transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-        transform-style: preserve-3d;
-        cursor: pointer;
-    }}
-    .flashcard.flipped {{
-        transform: rotateY(180deg);
-    }}
-    .flashcard-face {{
-        position: absolute;
-        width: 100%;
-        min-height: 200px;
-        backface-visibility: hidden;
-        border-radius: 18px;
-        padding: 30px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.25rem;
-        text-align: center;
-        background: var(--card-bg);
-        backdrop-filter: blur(22px) saturate(180%);
-        border: 1px solid var(--border);
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), var(--shadow);
-    }}
-    .flashcard-back {{
-        transform: rotateY(180deg);
-        border-color: var(--accent-2);
-    }}
-    
-    /* Quiz answer feedback animations */
-    .quiz-correct {{
-        animation: quiz-pop-green 0.5s ease;
-        border-left: 4px solid #4CAF50 !important;
-        padding-left: 16px !important;
-        background: rgba(76, 175, 80, 0.1) !important;
-    }}
-    .quiz-incorrect {{
-        animation: quiz-pop-red 0.5s ease;
-        border-left: 4px solid #f44336 !important;
-        padding-left: 16px !important;
-        background: rgba(244, 67, 54, 0.1) !important;
-    }}
-    @keyframes quiz-pop-green {{
-        0% {{ transform: scale(1); background: rgba(76, 175, 80, 0); }}
-        50% {{ transform: scale(1.02); background: rgba(76, 175, 80, 0.2); }}
-        100% {{ transform: scale(1); background: rgba(76, 175, 80, 0.1); }}
-    }}
-    @keyframes quiz-pop-red {{
-        0% {{ transform: scale(1); background: rgba(244, 67, 54, 0); }}
-        50% {{ transform: scale(1.02); background: rgba(244, 67, 54, 0.2); }}
-        100% {{ transform: scale(1); background: rgba(244, 67, 54, 0.1); }}
-    }}
-    
-    /* Level-up celebration */
-    .level-up-celebration {{
-        position: fixed;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        background: var(--bg-elevated);
-        border: 2px solid var(--accent-1);
-        border-radius: 24px;
-        padding: 40px 60px;
-        z-index: 9999;
-        animation: level-up-pop 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-        text-align: center;
-        backdrop-filter: blur(30px);
-        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
-    }}
-    .level-up-content {{
-        font-size: 2rem;
-        font-weight: 700;
-        background: linear-gradient(135deg, var(--accent-1), var(--accent-2));
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-    }}
-    @keyframes level-up-pop {{
-        0% {{ transform: translate(-50%, -50%) scale(0.5); opacity: 0; }}
-        100% {{ transform: translate(-50%, -50%) scale(1); opacity: 1; }}
-    }}
-    
-    /* Badge unlock */
-    .badge-unlock {{
-        display: flex;
-        align-items: center;
-        gap: 16px;
-        background: var(--card-bg);
-        border: 1px solid var(--accent-2);
-        border-radius: 16px;
-        padding: 16px 24px;
-        margin: 12px 0;
-        animation: badge-unlock-slide 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-        backdrop-filter: blur(20px);
-        box-shadow: 0 8px 32px rgba(199, 125, 255, 0.2);
-    }}
-    .badge-unlock-icon {{
-        font-size: 3rem;
-    }}
-    .badge-unlock-content {{
-        color: var(--text);
-    }}
-    @keyframes badge-unlock-slide {{
-        0% {{ transform: translateX(-50px); opacity: 0; }}
-        100% {{ transform: translateX(0); opacity: 1; }}
-    }}
-    
-    /* Confetti */
-    .confetti-container {{
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        overflow: hidden;
-        pointer-events: none;
-    }}
-    .confetti-piece {{
-        position: absolute;
-        width: 10px;
-        height: 10px;
-        animation: confetti-fall 3s linear infinite;
-    }}
-    .confetti-piece:nth-child(1) {{ background: #ff6b6b; left: 10%; animation-delay: 0s; }}
-    .confetti-piece:nth-child(2) {{ background: #ffd93d; left: 20%; animation-delay: 0.2s; }}
-    .confetti-piece:nth-child(3) {{ background: #6bcb77; left: 30%; animation-delay: 0.4s; }}
-    .confetti-piece:nth-child(4) {{ background: #4d96ff; left: 40%; animation-delay: 0.6s; }}
-    .confetti-piece:nth-child(5) {{ background: #ff6b6b; left: 50%; animation-delay: 0.8s; }}
-    .confetti-piece:nth-child(6) {{ background: #ffd93d; left: 60%; animation-delay: 1s; }}
-    .confetti-piece:nth-child(7) {{ background: #6bcb77; left: 70%; animation-delay: 1.2s; }}
-    .confetti-piece:nth-child(8) {{ background: #4d96ff; left: 80%; animation-delay: 1.4s; }}
-    .confetti-piece:nth-child(9) {{ background: #c77dff; left: 90%; animation-delay: 1.6s; }}
-    .confetti-piece:nth-child(10) {{ background: #ff6b6b; left: 15%; animation-delay: 1.8s; }}
-    @keyframes confetti-fall {{
-        0% {{ transform: translateY(-100px) rotate(0deg); opacity: 1; }}
-        100% {{ transform: translateY(300px) rotate(720deg); opacity: 0; }}
-    }}
-    
-    /* Shimmer loading skeleton */
-    .shimmer {{
-        background: linear-gradient(90deg, var(--card-bg) 25%, var(--track-bg) 50%, var(--card-bg) 75%);
-        background-size: 200% 100%;
-        animation: shimmer 1.5s infinite;
-        border-radius: 12px;
-        min-height: 100px;
-        margin: 10px 0;
-    }}
-    @keyframes shimmer {{
-        0% {{ background-position: 200% 0; }}
-        100% {{ background-position: -200% 0; }}
-    }}
-    
-    /* Home dashboard cards */
-    .home-grid {{
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 16px;
-        margin: 20px 0;
-    }}
-    .quick-action-card {{
-        text-align: center;
-        padding: 24px 16px;
-        cursor: pointer;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    }}
-    .quick-action-card:hover {{
-        transform: translateY(-4px) scale(1.02);
-        border-color: var(--accent-1);
-    }}
-    .quick-action-icon {{
-        font-size: 2.5rem;
-        margin-bottom: 8px;
-    }}
-    .quick-action-label {{
-        font-size: 0.9rem;
-        font-weight: 500;
-        color: var(--text);
-    }}
-    
-    /* Empty state illustrations */
-    .empty-state {{
-        text-align: center;
-        padding: 40px 20px;
-        color: var(--muted);
-    }}
-    .empty-state-icon {{
-        font-size: 4rem;
-        margin-bottom: 16px;
-        opacity: 0.6;
-    }}
-    .empty-state-text {{
-        font-size: 1.1rem;
-        font-weight: 500;
-    }}
-    .empty-state-hint {{
-        font-size: 0.9rem;
-        color: var(--muted-2);
-        margin-top: 8px;
-    }}
-    
-    /* Profile card enhancements */
     .profile-card {{
         border-radius: 22px;
         padding: 18px;
@@ -1130,75 +1880,225 @@ def apply_theme(theme=None):
         backdrop-filter: blur(10px);
     }}
 
-    /* Audio Player */
-    .audio-player-container {{
-        background: var(--card-bg);
-        border-radius: 18px;
-        padding: 24px;
-        border: 1px solid var(--border);
-        margin: 16px 0;
+    .pomo-ring {{
+        width: 220px; height: 220px; border-radius: 50%;
+        margin: 12px auto 20px auto;
+        background: conic-gradient(var(--accent-1) var(--pct, 0%), var(--track-bg) 0);
+        display: flex; align-items: center; justify-content: center;
+        transition: background 0.6s linear;
+        box-shadow: 0 0 50px rgba(124, 140, 255, 0.3);
     }}
-    .audio-controls {{
-        display: flex;
-        align-items: center;
-        gap: 16px;
-        flex-wrap: wrap;
+    .pomo-ring-inner {{
+        width: 178px; height: 178px; border-radius: 50%;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        gap: 4px;
     }}
-    .audio-controls button {{
-        padding: 10px 20px;
-        border-radius: 12px;
-        border: 1px solid var(--border);
-        background: var(--accent-soft);
-        color: var(--text);
-        cursor: pointer;
-        font-weight: 600;
-        transition: all 0.2s ease;
-    }}
-    .audio-controls button:hover {{
-        transform: translateY(-2px);
-        background: var(--accent-1);
-        color: white;
-    }}
-    .audio-controls button:disabled {{
-        opacity: 0.5;
-        cursor: not-allowed;
-        transform: none;
-    }}
-    .status-indicator {{
-        padding: 8px 16px;
-        border-radius: 8px;
-        background: var(--track-bg);
-        color: var(--muted);
-        font-size: 0.9rem;
+    .pomo-time {{ font-size: 2.1rem; font-weight: 700; letter-spacing: 0.5px; color: var(--text); font-variant-numeric: tabular-nums; }}
+    .pomo-label {{ font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }}
+
+    .flash-face {{
+        padding: 24px; border-radius: 18px; text-align: center; font-size: 1.25rem;
     }}
 
-    /* Theme Builder Preview */
-    .theme-preview {{
-        border-radius: 18px;
-        padding: 30px;
-        border: 1px solid var(--border);
-        margin: 10px 0;
+    .shimmer-block {{ display: flex; flex-direction: column; gap: 10px; padding: 4px 0; }}
+    .shimmer-bar {{
+        height: 14px; border-radius: 8px;
+        background: linear-gradient(90deg, rgba(255,255,255,0.05) 25%, rgba(255,255,255,0.14) 50%, rgba(255,255,255,0.05) 75%);
+        background-size: 200% 100%;
+        animation: sso-shimmer 1.3s ease-in-out infinite;
     }}
-    .theme-preview .preview-card {{
-        background: var(--card-bg);
-        backdrop-filter: blur(20px);
-        border: 1px solid var(--border);
-        border-radius: 14px;
-        padding: 20px;
-        margin: 10px 0;
+    @keyframes sso-shimmer {{
+        0% {{ background-position: 200% 0; }}
+        100% {{ background-position: -200% 0; }}
     }}
-    .theme-preview .preview-accent {{
-        border-radius: 12px;
-        padding: 12px 24px;
-        color: white;
-        font-weight: 600;
-        display: inline-block;
-        margin: 5px;
+    @media (prefers-reduced-motion: reduce) {{ .shimmer-bar {{ animation: none; }} }}
+
+    .empty-state {{
+        text-align: center; padding: 22px 16px; border-radius: 16px;
+        background: var(--card-bg); border: 1px dashed var(--border);
+        color: var(--muted); font-size: 0.9rem;
     }}
+    .empty-state .empty-icon {{ font-size: 1.8rem; display: block; margin-bottom: 6px; }}
+
+    .level-up-overlay {{
+        position: fixed; inset: 0; z-index: 999998;
+        display: flex; align-items: center; justify-content: center;
+        background: rgba(5, 7, 13, 0.35);
+        animation: sso-overlay-fade 2.6s ease forwards;
+        pointer-events: none;
+    }}
+    @keyframes sso-overlay-fade {{
+        0% {{ opacity: 0; }} 10% {{ opacity: 1; }} 75% {{ opacity: 1; }} 100% {{ opacity: 0; }}
+    }}
+    .level-up-card {{
+        background: var(--card-bg); backdrop-filter: blur(26px) saturate(180%);
+        border: 1px solid var(--border); border-radius: 24px; padding: 28px 40px;
+        text-align: center; box-shadow: inset 0 1px 0 rgba(255,255,255,0.2), 0 20px 60px rgba(0,0,0,0.5);
+        animation: sso-pop-in 0.5s cubic-bezier(.34,1.56,.64,1);
+    }}
+    @keyframes sso-pop-in {{
+        0% {{ transform: scale(0.6); opacity: 0; }}
+        60% {{ transform: scale(1.08); opacity: 1; }}
+        100% {{ transform: scale(1); opacity: 1; }}
+    }}
+    .level-up-icon {{ font-size: 2.6rem; }}
+    .level-up-title {{
+        font-size: 1.6rem; font-weight: 800; margin-top: 6px;
+        background: linear-gradient(135deg, var(--accent-1), var(--accent-2));
+        -webkit-background-clip: text; background-clip: text; color: transparent;
+    }}
+    .level-up-sub {{ font-size: 0.95rem; color: var(--muted); margin-top: 2px; }}
+
+    .badge-popup {{
+        position: fixed; top: 20px; right: 20px; z-index: 999997;
+        display: flex; align-items: center; gap: 10px;
+        background: var(--card-bg); backdrop-filter: blur(22px) saturate(180%);
+        border: 1px solid rgba(124,140,255,0.35); border-radius: 16px; padding: 12px 18px;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.2), var(--shadow);
+        animation: sso-badge-slide 3.2s ease forwards;
+    }}
+    @keyframes sso-badge-slide {{
+        0% {{ transform: translateX(120%); opacity: 0; }}
+        10% {{ transform: translateX(0); opacity: 1; }}
+        85% {{ transform: translateX(0); opacity: 1; }}
+        100% {{ transform: translateX(120%); opacity: 0; }}
+    }}
+    .badge-popup-icon {{ font-size: 1.4rem; }}
+    .badge-popup-text {{ font-size: 0.85rem; color: var(--text); }}
+
+    .quiz-result-card {{
+        background: var(--card-bg); backdrop-filter: blur(18px) saturate(180%);
+        border: 1px solid var(--border); border-radius: 16px; padding: 14px 16px; margin-bottom: 12px;
+        opacity: 0; animation: sso-fade-in 0.45s ease forwards;
+    }}
+    .quiz-result-card.quiz-card-correct {{ border-color: rgba(34, 197, 94, 0.45); }}
+    .quiz-result-card.quiz-card-wrong {{ border-color: rgba(239, 68, 68, 0.45); }}
+    .quiz-result-q {{ font-weight: 700; margin-bottom: 8px; color: var(--text); }}
+    .quiz-opt {{
+        padding: 7px 12px; border-radius: 10px; margin-bottom: 5px; font-size: 0.88rem;
+        background: rgba(255,255,255,0.03); border: 1px solid transparent; color: var(--muted);
+    }}
+    .quiz-opt-correct {{ background: rgba(34, 197, 94, 0.14); border-color: rgba(34, 197, 94, 0.4); color: var(--text); }}
+    .quiz-opt-wrong {{ background: rgba(239, 68, 68, 0.14); border-color: rgba(239, 68, 68, 0.4); color: var(--text); }}
+
+    .cbar-chart {{ display: flex; flex-direction: column; gap: 10px; padding: 6px 0; }}
+    .cbar-row {{ display: flex; align-items: center; gap: 10px; }}
+    .cbar-label {{ width: 130px; font-size: 0.8rem; color: var(--muted); flex-shrink: 0; }}
+    .cbar-track {{
+        flex: 1; height: 14px; border-radius: 8px; background: var(--track-bg);
+        border: 1px solid var(--border); overflow: hidden;
+    }}
+    .cbar-fill {{
+        height: 100%; border-radius: 8px;
+        background: linear-gradient(90deg, var(--accent-1), var(--accent-2));
+        box-shadow: 0 0 10px rgba(124,140,255,0.5);
+        transition: width 0.8s ease;
+    }}
+    .cbar-value {{ width: 46px; text-align: right; font-size: 0.8rem; color: var(--text); flex-shrink: 0; }}
     </style>
     """, unsafe_allow_html=True)
 
-# PARENT / TEACHER READ-ONLY VIEW
+# ==================== SHARED UI HELPERS ====================
+
+def show_shimmer(placeholder, lines=3):
+    widths = [95, 88, 72, 60][:max(1, lines)]
+    bars = "".join(f'<div class="shimmer-bar" style="width:{w}%;"></div>' for w in widths)
+    placeholder.markdown(f'<div class="shimmer-block">{bars}</div>', unsafe_allow_html=True)
+
+def empty_state(icon, text):
+    st.markdown(f'<div class="empty-state"><span class="empty-icon">{icon}</span>{text}</div>', unsafe_allow_html=True)
+
+def render_flip_card(front_text, back_text, card_id):
+    safe_front = (front_text or "").replace("</div>", "").replace("<script", "")
+    safe_back = (back_text or "").replace("</div>", "").replace("<script", "")
+    html = f"""
+<div style="font-family:'Plus Jakarta Sans',-apple-system,sans-serif; perspective:1200px;">
+  <div id="card-{card_id}" onclick="this.classList.toggle('flipped')"
+       style="position:relative;width:100%;height:190px;cursor:pointer;
+              transition:transform 0.6s cubic-bezier(.4,.2,.2,1);transform-style:preserve-3d;">
+    <div style="position:absolute;inset:0;backface-visibility:hidden;
+                display:flex;align-items:center;justify-content:center;text-align:center;
+                padding:20px;border-radius:18px;font-size:1.1rem;color:#F5F7FA;line-height:1.4;
+                background:rgba(255,255,255,0.07);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+                border:1px solid rgba(255,255,255,0.16);box-sizing:border-box;
+                box-shadow:inset 0 1px 0 rgba(255,255,255,0.2);">
+      {safe_front}
+    </div>
+    <div style="position:absolute;inset:0;backface-visibility:hidden;transform:rotateY(180deg);
+                display:flex;align-items:center;justify-content:center;text-align:center;
+                padding:20px;border-radius:18px;font-size:1rem;color:#F5F7FA;line-height:1.4;
+                background:rgba(255,255,255,0.07);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+                border:1px solid rgba(199,125,255,0.45);box-sizing:border-box;
+                box-shadow:inset 0 1px 0 rgba(255,255,255,0.2);">
+      {safe_back}
+    </div>
+  </div>
+  <style> #card-{card_id}.flipped {{ transform: rotateY(180deg); }} </style>
+  <p style="text-align:center;color:#7C8699;font-size:0.72rem;margin-top:8px;">Tap the card to flip</p>
+</div>
+"""
+    components.html(html, height=230)
+
+def render_quiz_result_card(idx, q, u_ans):
+    is_correct = (u_ans == q["correct"])
+    options_html = ""
+    for letter in ["A", "B", "C", "D"]:
+        cls = ""
+        icon = "&nbsp;&nbsp;"
+        if letter == q["correct"]:
+            cls, icon = "quiz-opt-correct", "✅"
+        elif letter == u_ans:
+            cls, icon = "quiz-opt-wrong", "❌"
+        options_html += f'<div class="quiz-opt {cls}">{icon} {letter}) {q.get(letter, "")}</div>'
+    status_cls = "quiz-card-correct" if is_correct else "quiz-card-wrong"
+    st.markdown(f"""
+<div class="quiz-result-card {status_cls}" style="animation-delay:{idx * 0.06}s;">
+<div class="quiz-result-q">Question {idx + 1}: {q['question']}</div>
+{options_html}
+</div>
+""", unsafe_allow_html=True)
+
+def render_custom_bars(labels_values, unit=""):
+    values = [v for _, v in labels_values]
+    max_v = max(values) if values else 1
+    max_v = max_v or 1
+    rows = ""
+    for label, value in labels_values:
+        pct = int((value / max_v) * 100)
+        rows += (
+            f'<div class="cbar-row"><div class="cbar-label">{label}</div>'
+            f'<div class="cbar-track"><div class="cbar-fill" style="width:{pct}%;"></div></div>'
+            f'<div class="cbar-value">{value}{unit}</div></div>'
+        )
+    st.markdown(f'<div class="cbar-chart">{rows}</div>', unsafe_allow_html=True)
+
+# ==================== PROMPT BUILDERS ====================
+
+def _syllabus_notice(task_name):
+    return f"CRITICAL RULE: This request is for {task_name} ONLY — produce nothing else. This content MUST strictly align with the Sri Lankan local school syllabus for the user's grade."
+
+def _who_line():
+    user_info = current_profile()
+    return f"The user is {user_info.get('user_age', 13)} years old in {user_info.get('user_grade', 'Grade 8')} in Sri Lanka."
+
+def build_quiz_prompt(subject, difficulty, num_questions, content):
+    return (
+        f"{_who_line()} {_syllabus_notice('a multiple-choice quiz')} "
+        f"Subject: {subject}. Difficulty: {difficulty}. Generate ONLY exactly "
+        f"{num_questions} multiple choice questions. Return ONLY a raw JSON array of exactly {num_questions} "
+        "objects, each with keys: 'question', 'A', 'B', 'C', 'D', 'correct' (one of 'A'/'B'/'C'/'D'). "
+        f"Topic/Content: {content[:2000]}"
+    )
+
+def language_instruction():
+    user_info = current_profile()
+    lang = user_info.get('language', 'en')
+    if lang == "si":
+        return "Respond in Sinhala (සිංහල)."
+    return "Respond in English."
+
+# ==================== PARENT / TEACHER VIEW ====================
+
 if st.query_params.get("view") == "parent":
     apply_theme()
     viewed_user = st.query_params.get("user", "")
@@ -1246,7 +2146,8 @@ if st.query_params.get("view") == "parent":
             st.dataframe(pd.DataFrame(quiz_hist)[["date", "subject", "score", "total"]], use_container_width=True, hide_index=True)
     st.stop()
 
-# LOGIN / PROFILE SELECTION SCREEN
+# ==================== LOGIN / PROFILE SELECTION ====================
+
 if st.session_state.active_user is None and is_google_auth_configured():
     try:
         if st.user.is_logged_in:
@@ -1320,12 +2221,7 @@ if st.session_state.active_user is None and not st.session_state.get("google_pen
                     st.error("No account found with that username or email.")
                     record_failed_login(identifier)
                 elif profile.get("password_hash") is None:
-                    st.warning(
-                        "⚠️ This account hasn't been secured with a password yet "
-                        "(it predates the login system). Set one now to claim it — "
-                        "do this immediately if you plan to make the app public, since "
-                        "anyone could otherwise claim an unsecured account first."
-                    )
+                    st.warning("⚠️ This account hasn't been secured with a password yet. Set one now to claim it.")
                     new_pw = st.text_input("Set a password:", type="password", key="claim_pw")
                     confirm_pw = st.text_input("Confirm password:", type="password", key="claim_pw2")
                     if st.button("Secure this account", use_container_width=True, key="claim_btn"):
@@ -1388,7 +2284,8 @@ if st.session_state.active_user is None and not st.session_state.get("google_pen
 
     st.stop()
 
-# PERSONALIZED CONTEXT
+# ==================== PERSONALIZED CONTEXT ====================
+
 user_info = current_profile()
 user_gender = user_info.get("user_gender", "Prefer not to say")
 user_age = user_info.get("user_age", 13)
@@ -1407,108 +2304,8 @@ if user_gender == "Male": greeting = "Welcome back, King 👑"
 elif user_gender == "Female": greeting = "Welcome back, Queen 👑"
 else: greeting = "Welcome back, Champion 🌟"
 
-LANGUAGE_NAMES = {"en": "English", "si": "Sinhala"}
-language_instruction = (
-    f"Respond in {LANGUAGE_NAMES.get(user_info.get('language', 'en'), 'English')}, "
-    "using vocabulary and sentence structure appropriate for the student's age and grade."
-)
+# ==================== DYNAMIC SIDEBAR RENDERER ====================
 
-# PER-FEATURE PROMPT BUILDERS
-def _syllabus_notice(task_name):
-    return (
-        f"CRITICAL RULE: This request is for {task_name} ONLY — produce nothing else. Do not add a summary, quiz "
-        f"questions, flashcards, a mindmap, or any other feature's output; only the {task_name} is wanted. "
-        "This content MUST strictly align with the Sri Lankan local school syllabus for the user's grade — not "
-        "above it, not below it. Use valid sources (e.g. edupub.gov.lk, dpeducation.lk, e-thaksalawa.moe.gov.lk). "
-        "Do NOT introduce any concept, term, formula, or vocabulary that is not part of this grade's official "
-        "syllabus, even if it is technically related or commonly taught in other countries or exam systems. If a "
-        "topic is normally taught at a higher grade, simplify it down to what is appropriate for this grade rather "
-        "than teaching the advanced version. Keep explanations beginner-friendly, clean, and engaging."
-    )
-
-def _who_line():
-    return f"The user is {user_age} years old in {user_grade} in Sri Lanka."
-
-def build_mindmap_prompt(content):
-    return (
-        f"{_who_line()} {_syllabus_notice('a mindmap')} {language_instruction} "
-        "Based on the following content, generate ONLY a clear, logical, structured text-based mindmap. Format it "
-        "using clean nested markdown bullet points, extremely intuitive for a beginner to study. "
-        f"Content: {content}"
-    )
-
-def build_summarizer_prompt(notes_text):
-    return (
-        f"{_who_line()} {_syllabus_notice('a note summary')} {language_instruction} "
-        f"Summarize these notes clearly in bullet points ONLY. Notes: {notes_text}. Explain it simply so a "
-        "beginner can master it."
-    )
-
-def build_quiz_prompt(subject, difficulty, num_questions, content):
-    return (
-        f"{_who_line()} {_syllabus_notice('a multiple-choice quiz')} {language_instruction} "
-        f"Subject: {subject}. Difficulty: {difficulty}. Based on the topic/image/document, generate ONLY exactly "
-        f"{num_questions} multiple choice questions. Return ONLY a raw JSON array of exactly {num_questions} "
-        "objects, each with keys: 'question', 'A', 'B', 'C', 'D', 'correct' (one of 'A'/'B'/'C'/'D'). No "
-        f"explanation outside the JSON. Topic/Content: {content}"
-    )
-
-def build_math_prompt(math_query):
-    return (
-        f"{_who_line()} {_syllabus_notice('a step-by-step math solution')} {language_instruction} "
-        f"Solve ONLY this one math problem step-by-step: {math_query}. Do NOT just give the final answer. Act "
-        "like a friendly tutor teaching a beginner. Break down every step clearly."
-    )
-
-def build_flashcards_prompt(subject, content, count):
-    if len(content) > 8000:
-        content = content[:8000] + "... (truncated)"
-    
-    return (
-        f"{_who_line()} {_syllabus_notice('flashcards')} {language_instruction} "
-        f"Subject: {subject}. Based on the following content, create ONLY exactly {count} flashcards. "
-        "Extract key concepts, definitions, and important facts from the content. "
-        f"Return ONLY a raw JSON array of exactly {count} objects, each with keys 'front' (a short question or term) "
-        "and 'back' (a concise, clear answer/definition). No explanation outside the JSON.\n\n"
-        f"Content: {content}"
-    )
-
-def build_goal_tasks_prompt(goal):
-    return (
-        f"{_who_line()} {_syllabus_notice('a short study task list')} {language_instruction} "
-        f"Break down ONLY this one study goal into 4 short actionable tasks. Provide only the tasks, without "
-        f"numbers, one per line:\n{goal}"
-    )
-
-def build_daily_fact_prompt():
-    return (
-        f"{_who_line()} {language_instruction} "
-        "Tell ONLY one amazing, mind-blowing, yet easy-to-understand science or computer technology fact — no "
-        "summary, quiz, mindmap, or flashcards. Explain it in 3 clear bullet points."
-    )
-
-def build_audio_overview_prompt(content, style="overview"):
-    """Build prompt for generating audio overview script"""
-    style_instructions = {
-        "overview": "Create a clear, engaging audio overview that summarizes the key points. Use a conversational tone, as if you're explaining it to a student. Include natural pauses and emphasis on important concepts.",
-        "detailed": "Create a comprehensive audio lesson that explains the content in detail. Use a teaching tone with clear explanations, examples, and natural pacing for learning.",
-        "study_guide": "Create a study guide audio that highlights the most important facts, definitions, and concepts. Use a focused, exam-prep tone with clear emphasis on key terms."
-    }
-    
-    instruction = style_instructions.get(style, style_instructions["overview"])
-    
-    return (
-        f"{_who_line()} {language_instruction} "
-        f"Based on the following content, generate a script for a text-to-speech audio file. "
-        f"{instruction} "
-        "The script should be well-structured with clear sections, natural language, and appropriate pacing for spoken word. "
-        "Use short, clear sentences. Add brief pauses with '...' where appropriate. "
-        "Format the script with clear section breaks using '---' between major topics. "
-        "Make it engaging and easy to listen to.\n\n"
-        f"Content: {content}"
-    )
-
-# DYNAMIC SIDEBAR RENDERER
 def render_sidebar():
     profile = current_profile()
     gam = profile["gamification"]
@@ -1552,29 +2349,13 @@ def render_sidebar():
                 badge_tags = "".join([f'<span class="badge-tag">{BADGES[b]["label"]}</span>' for b in badges if b in BADGES])
                 st.markdown(f'<div class="badges-grid">{badge_tags}</div>', unsafe_allow_html=True)
             else:
-                st.markdown("""
-                <div class="empty-state">
-                    <div class="empty-state-icon">🏅</div>
-                    <div class="empty-state-text">No badges yet!</div>
-                    <div class="empty-state-hint">Complete activities to earn badges</div>
-                </div>
-                """, unsafe_allow_html=True)
+                empty_state("🥇", t("No badges unlocked yet!"))
 
         st.markdown("<div style='margin: 15px 0;'></div>", unsafe_allow_html=True)
 
-        is_sinhala = profile.get("language", "en") == "si"
-        lang_choice = st.toggle("🇱🇰 සිංහල (Sinhala)", value=is_sinhala, key="language_toggle")
-        new_lang = "si" if lang_choice else "en"
-        if new_lang != profile.get("language", "en"):
-            profile["language"] = new_lang
-            save_current()
+        if st.button("⚙️ " + t("Settings"), use_container_width=True):
+            st.session_state["nav_choice"] = "⚙️"
             st.rerun()
-
-        with st.expander("🔗 Parent / Teacher View"):
-            st.caption("Share this with a parent or teacher for a read-only progress summary — no login, no editing.")
-            encoded_key = urllib.parse.quote(st.session_state.active_user, safe="")
-            st.code(f"?view=parent&user={encoded_key}", language=None)
-            st.caption("Append this to the app's web address in your browser and share that full link.")
 
         if st.button(t("🔄 Switch Profile"), use_container_width=True):
             if st.session_state.get("auth_method") == "google":
@@ -1586,121 +2367,107 @@ def render_sidebar():
             st.session_state.auth_method = None
             st.rerun()
 
-# MODULE FUNCTIONS
+render_sidebar()
+
+# ==================== PAGE FUNCTIONS ====================
 
 def show_home():
-    """🏠 Home Dashboard - the new landing page with quick actions and overview"""
     profile = current_profile()
     gam = profile["gamification"]
-    analytics = profile["analytics"]
+    lvl, into_level, needed = xp_progress(gam["xp"])
+
+    st.markdown(f"## {greeting}")
+    st.caption(f"{profile.get('user_grade', '')} · Level {lvl}")
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("XP", gam["xp"])
+    c2.metric("Streak", f"{gam.get('streak', 0)} 🔥")
+    c3.metric("Badges", f"{len(gam.get('badges', []))}/{len(BADGES)}")
+
+    st.write("")
+    st.write("### Quick Access")
     
-    st.header("🏠 " + t("Dashboard"))
-    
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        st.markdown(f"### {t('Welcome back!')} {profile['user_name']} 👋")
-        st.caption(f"{t('Study Progress')} - {profile['user_grade']}")
-        
-        q1, q2, q3, q4 = st.columns(4)
-        q1.metric("Level", gam["level"])
-        q2.metric("🔥 Streak", gam.get("streak", 0))
-        q3.metric("📚 Quizzes", analytics.get("quiz_taken", 0))
-        q4.metric("⏱️ Pomodoro", analytics.get("pomodoro_sessions", 0))
-    
-    with col2:
-        lvl, into_level, needed = xp_progress(gam["xp"])
-        pct = int((into_level / needed) * 100)
-        st.markdown(f"""
-        <div style="background: var(--card-bg); padding: 16px; border-radius: 14px; border: 1px solid var(--border);">
-            <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--muted);">
-                <span>XP Progress</span>
-                <span>{into_level} / {needed}</span>
-            </div>
-            <div style="background: var(--track-bg); border-radius: 10px; height: 8px; margin-top: 4px; overflow: hidden;">
-                <div style="background: linear-gradient(90deg, var(--accent-1), var(--accent-2)); height: 100%; width: {pct}%; border-radius: 10px;"></div>
-            </div>
-            <div style="margin-top: 8px; font-size: 0.7rem; color: var(--muted-2);">
-                {len(gam.get('badges', []))} badges earned
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    st.markdown("### " + t("Quick Actions"))
-    action_cols = st.columns(4)
-    
-    quick_actions = [
-        ("📝", "Summarizer", "AI Note Summarizer"),
-        ("🗺️", "Mindmap", "AI Mindmap Generator"),
-        ("❓", "Quiz", "MCQ Quiz"),
-        ("🧠", "Math", "Math Solver"),
+    quick_links = [
+        ("💡 Daily Facts", "💡"), ("🗺️ Mindmap", "🗺️"), ("📝 Summarizer", "📝"),
+        ("🎧 Audio Overview", "🎧"), ("❓ MCQ Quiz", "❓"), ("🧠 Math Solver", "🧠"),
+        ("🎴 Flashcards", "🎴"), ("⏱️ Pomodoro", "⏱️"), ("✍️ Scribble Pad", "✍️"),
+        ("👨‍🏫 Exam Examiner", "👨‍🏫"), ("📦 Study Pack", "📦"), ("📅 Schedule", "📅"),
+        ("📊 Analytics", "📊"),
     ]
     
-    for col, (icon, label, feature) in zip(action_cols, quick_actions):
-        with col:
-            if st.button(f"{icon} {label}", use_container_width=True):
+    cols = st.columns(4)
+    for i, (label, icon) in enumerate(quick_links):
+        with cols[i % 4]:
+            if st.button(label, use_container_width=True, key=f"home_{icon}"):
                 st.session_state["nav_choice"] = icon
                 st.rerun()
-    
-    st.markdown("---")
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("### " + t("Pick up where you left off"))
-        last_feature = profile.get("last_feature_used", "💡")
-        feature_names = {
-            "💡": "Daily Facts",
-            "🗺️": "Mindmap",
-            "📝": "Summarizer",
-            "❓": "MCQ Quiz",
-            "🧠": "Math Solver",
-            "🎴": "Flashcards",
-            "⏱️": "Pomodoro",
-            "✍️": "Scribble Pad",
-            "🎧": "Audio Overview",
-            "📊": "Analytics",
-            "⚙️": "Settings"
-        }
-        st.info(f"🔁 Continue with **{feature_names.get(last_feature, 'Daily Facts')}**")
-        
-        # FIX: Only update nav_choice, not nav_radio
-        if st.button("↩️ Resume", use_container_width=True, key="resume_button"):
-            st.session_state["nav_choice"] = last_feature
-            st.rerun()
-    
-    with col2:
-        st.markdown("### " + t("Recent Activity"))
-        quiz_hist = profile.get("quiz_history", [])
-        pom_hist = profile.get("pomodoro_history", [])
-        
-        if quiz_hist or pom_hist:
-            recent_items = []
-            for q in quiz_hist[-3:]:
-                recent_items.append(f"📚 Quiz: {q.get('score', 0)}/{q.get('total', 0)} ({q.get('date', '')})")
-            for p in pom_hist[-3:]:
-                recent_items.append(f"⏱️ Focus: {p.get('minutes', 0)}min ({p.get('date', '')})")
-            
-            for item in recent_items[-3:]:
-                st.text(item)
-        else:
-            st.caption("No recent activity yet. Start studying to see your progress here!")
+
+    quiz_history = profile.get("quiz_history", [])
+    if quiz_history:
+        st.write("")
+        st.write("### Recent activity")
+        for entry in quiz_history[-3:][::-1]:
+            st.caption(f"📝 {entry['date']} — {entry['subject']}: {entry['score']}/{entry['total']}")
+
+def show_settings():
+    st.header("⚙️ " + t("Settings"))
+    profile = current_profile()
+
+    st.subheader("🌐 " + t("Language"))
+    is_sinhala = profile.get("language", "en") == "si"
+    lang_choice = st.toggle("🇱🇰 සිංහල (Sinhala)", value=is_sinhala, key="settings_language_toggle")
+    new_lang = "si" if lang_choice else "en"
+    if new_lang != profile.get("language", "en"):
+        profile["language"] = new_lang
+        save_current()
+        st.rerun()
+
+    st.write("---")
+    st.subheader("🔗 " + t("Parent / Teacher View"))
+    st.caption("Share this with a parent or teacher for a read-only progress summary — no login, no editing.")
+    encoded_key = urllib.parse.quote(st.session_state.active_user, safe="")
+    st.code(f"?view=parent&user={encoded_key}", language=None)
+    st.caption("Append this to the app's web address in your browser and share that full link.")
+
+    st.write("---")
+    st.subheader("👤 " + t("Account"))
+    st.write(f"**Name:** {profile.get('user_name', '')}")
+    st.write(f"**Grade:** {profile.get('user_grade', '')}")
+    st.write(f"**Age:** {profile.get('user_age', '')}")
+    if profile.get("email"):
+        st.write(f"**Signed in with:** Google ({profile['email']})")
+    else:
+        st.write("**Signed in with:** Username & password")
 
 def show_daily_facts():
     st.header(t("💡 Daily Tech & Science Facts"))
     st.caption(t("Get interesting Tech/Science facts here"))
+    
+    offline_manager = OfflineContentManager()
+    if not offline_manager.is_online():
+        st.info("📶 Offline Mode - Using pre-loaded facts")
+    
     today_str = str(date.today())
     need_new = ("daily_fact" not in st.session_state or st.session_state.get("daily_fact_date") != today_str)
 
     if st.button("Get a new Fact 🧠") or need_new:
-        with st.spinner("Your fact is being retrieved by AI..."):
+        ph = st.empty()
+        show_shimmer(ph, lines=3)
+        
+        offline_manager = OfflineContentManager()
+        if offline_manager.is_online():
             prompt = build_daily_fact_prompt()
             st.session_state.daily_fact = get_ai_response(prompt)
-            st.session_state.daily_fact_date = today_str
+        else:
+            st.session_state.daily_fact = offline_manager.get_offline_fact()
+        
+        st.session_state.daily_fact_date = today_str
+        ph.empty()
 
     st.info(st.session_state.daily_fact)
-    
-    profile = current_profile()
-    profile["last_feature_used"] = "💡"
-    save_current()
+
+def build_daily_fact_prompt():
+    return f"{_who_line()} Tell ONLY one amazing, mind-blowing, yet easy-to-understand science or computer technology fact. Explain it in 3 clear bullet points."
 
 def show_mindmap():
     st.header(t("🗺️ AI Mindmap Generator"))
@@ -1711,31 +2478,33 @@ def show_mindmap():
 
     if st.button("Generate Mindmap 🧠"):
         if mm_file or mm_text:
-            with st.spinner("Structuring your mindmap..."):
-                st.markdown('<div class="shimmer" style="height:200px;"></div>', unsafe_allow_html=True)
-                
-                extracted_content = mm_text
-                img = None
-                
-                if mm_file:
-                    if mm_file.name.lower().endswith(".pdf"):
-                        extracted_content += "\n" + extract_text_from_pdf(mm_file)
-                    else:
-                        img = Image.open(mm_file)
+            ph = st.empty()
+            show_shimmer(ph, lines=4)
+            extracted_content = mm_text
+            img = None
 
-                prompt = build_mindmap_prompt(extracted_content)
-                
-                mm_output = get_ai_response(prompt, image=img)
-                st.success("Your Mindmap is Ready:")
-                st.markdown(mm_output)
-                
-                profile = current_profile()
-                add_xp(profile, XP_REWARDS["mindmap_created"], "mindmap_created")
-                profile["last_feature_used"] = "🗺️"
-                save_current()
-                render_gamification_popups()
+            if mm_file:
+                if mm_file.name.lower().endswith(".pdf"):
+                    extracted_content += "\n" + extract_text_from_pdf(mm_file)
+                else:
+                    img = Image.open(mm_file)
+
+            prompt = build_mindmap_prompt(extracted_content)
+
+            mm_output = get_ai_response(prompt, image=img)
+            ph.empty()
+            st.success("Your Mindmap is Ready:")
+            st.markdown(mm_output)
+
+            profile = current_profile()
+            add_xp(profile, XP_REWARDS["mindmap_created"], "mindmap_created")
+            save_current()
+            render_gamification_popups()
         else:
             st.warning("Please provide a topic or upload a file to generate a mindmap.")
+
+def build_mindmap_prompt(content):
+    return f"{_who_line()} {_syllabus_notice('a mindmap')} Based on the following content, generate ONLY a clear, logical, structured text-based mindmap. Format it using clean nested markdown bullet points. Content: {content[:2000]}"
 
 def show_summarizer():
     st.header(t("📝 AI Note Summarizer"))
@@ -1755,8 +2524,6 @@ def show_summarizer():
     if st.button("Summarize the note ✨"):
         if uploaded_file or user_note:
             with st.spinner("Your note is being summarized by AI..."):
-                st.markdown('<div class="shimmer" style="height:150px;"></div>', unsafe_allow_html=True)
-                
                 combined_text = user_note + "\n" + pdf_text
                 prompt = build_summarizer_prompt(combined_text)
                 output = get_ai_response(prompt, image=img)
@@ -1764,110 +2531,73 @@ def show_summarizer():
                 st.write(output)
                 
                 profile = current_profile()
+                profile.setdefault("summary_history", [])
+                profile["summary_history"].append({
+                    "date": str(date.today()),
+                    "content": output
+                })
                 add_xp(profile, XP_REWARDS["note_summarized"], "note_summarized")
-                profile["last_feature_used"] = "📝"
                 save_current()
                 render_gamification_popups()
         else:
             st.warning("Please provide a note or upload a file.")
 
-def show_mcq_quiz():
-    st.header(t("❓ AI Anti-Cheat MCQ Quiz"))
-    st.caption(t("Test your knowledge with questions based on the Sri Lankan Syllabus."))
+def build_summarizer_prompt(notes_text):
+    return f"{_who_line()} {_syllabus_notice('a note summary')} Summarize these notes clearly in bullet points ONLY. Notes: {notes_text[:2000]}."
 
-    subject = st.text_input("Subject — e.g. Science, History, Maths:", value="General Knowledge")
-    q_file = st.file_uploader("Upload Notes to test yourself (PDF, PNG, JPG):", type=["pdf", "png", "jpg", "jpeg"])
-    topic = st.text_input("Topic of lesson:")
-    difficulty = st.select_slider("Difficulty:", options=["Easy", "Medium", "Hard"], value="Medium")
-    num_questions = st.slider("Number of questions:", min_value=1, max_value=20, value=5)
+def show_audio_overview():
+    st.header(t("🎧 Audio Overview"))
+    st.caption(t("Turn your notes into a short two-host podcast-style discussion you can listen to."))
 
-    q_img = None
+    uploaded_file = st.file_uploader("Upload Notes (PDF, PNG, JPG):", type=["pdf", "png", "jpg", "jpeg"], key="audio_ov_upload")
+    user_note = st.text_area("Or paste the note here:", height=150, key="audio_ov_text")
+
+    img = None
     pdf_text = ""
-    if q_file:
-        if q_file.name.lower().endswith(".pdf"):
-            pdf_text = extract_text_from_pdf(q_file)
+    if uploaded_file:
+        if uploaded_file.name.lower().endswith(".pdf"):
+            pdf_text = extract_text_from_pdf(uploaded_file)
             st.success("PDF loaded successfully!")
         else:
-            q_img = Image.open(q_file)
-            st.image(q_img, width=300)
+            img = Image.open(uploaded_file)
+            st.image(img, width=300)
 
-    if st.button("Get your MCQ questions 🎯"):
-        if q_file or topic:
-            with st.spinner(f"{num_questions} questions are being created by AI..."):
-                st.markdown('<div class="shimmer" style="height:200px;"></div>', unsafe_allow_html=True)
-                
-                combined_context = (topic or "") + "\n" + pdf_text
-                prompt = build_quiz_prompt(
-                    subject, difficulty, num_questions,
-                    combined_context if combined_context.strip() else "see attached image"
-                )
-                raw_json = get_ai_response(prompt, image=q_img)
-                try:
-                    st.session_state.quiz_list = parse_quiz_json(raw_json)
-                    st.session_state.quiz_subject = subject
-                    st.session_state.quiz_answers = {}
-                    st.session_state.quiz_checked = False
-                except Exception:
-                    st.error("There was an error while creating questions. Please try again.")
-        else:
-            st.warning("Please give a topic or upload a file.")
-
-    if "quiz_list" in st.session_state:
-        st.write("---")
-        st.write("### ✍️ Answer the questions:")
-
-        for idx, q in enumerate(st.session_state.quiz_list):
-            with st.container():
-                st.markdown(f"#### **Question {idx+1}:** {q['question']}")
-                options = [f"A) {q['A']}", f"B) {q['B']}", f"C) {q['C']}", f"D) {q['D']}"]
-                user_choice = st.radio(f"q_{idx}", options, key=f"q_ans_{idx}", label_visibility="collapsed", index=None)
-                st.session_state.quiz_answers[idx] = user_choice[0] if user_choice else ""
-                st.write("")
-
-        if st.button("Submit Answers ✔️") and not st.session_state.get("quiz_checked", False):
-            st.session_state.quiz_checked = True
-            score = 0
-            for idx, q in enumerate(st.session_state.quiz_list):
-                if st.session_state.quiz_answers.get(idx, "") == q["correct"]:
-                    score += 1
-
-            total_qs = len(st.session_state.quiz_list)
+    if st.button("🎙️ Generate Audio Overview"):
+        if uploaded_file or user_note:
             profile = current_profile()
-            profile["analytics"]["quiz_taken"] += 1
-            profile["analytics"]["total_score"] += score
-            profile["analytics"]["total_questions"] += total_qs
-            profile["quiz_history"].append({
-                "date": str(date.today()),
-                "subject": st.session_state.get("quiz_subject", "General"),
-                "score": score,
-                "total": total_qs,
-            })
-            add_xp(profile, score * XP_REWARDS["quiz_question_correct"], "quiz_question_correct")
-            add_xp(profile, XP_REWARDS["quiz_complete"], "quiz_complete")
-            if total_qs > 0 and score == total_qs:
-                award_badge(profile, "perfect_score")
-            profile["last_feature_used"] = "❓"
-            save_current()
+            combined_text = user_note + "\n" + pdf_text
 
-        if st.session_state.get("quiz_checked", False):
-            score = 0
-            st.write("---")
-            st.write("### 📊 Result Summary:")
-            for idx, q in enumerate(st.session_state.quiz_list):
-                u_ans = st.session_state.quiz_answers.get(idx, "")
-                is_correct = u_ans == q["correct"]
-                if is_correct:
-                    score += 1
-                    st.markdown(f'<div class="quiz-correct">✅ <strong>Question {idx+1}:</strong> Correct! (Answer: {u_ans})</div>', unsafe_allow_html=True)
-                else:
-                    st.markdown(f'<div class="quiz-incorrect">❌ <strong>Question {idx+1}:</strong> Wrong! (Your Answer: {u_ans} | Correct: {q["correct"]})</div>', unsafe_allow_html=True)
+            script_ph = st.empty()
+            show_shimmer(script_ph, lines=4)
+            script_prompt = build_audio_overview_script_prompt(combined_text if combined_text.strip() else "see attached image")
+            script_text = get_ai_response(script_prompt, image=img)
+            script_ph.empty()
 
-            total_qs = len(st.session_state.quiz_list)
-            st.markdown(f"## 🏆 Total Score: **{score} / {total_qs}**")
-            if score == total_qs:
-                st.balloons()
-                st.success("Perfect! All questions are correct! 🥳")
-            render_gamification_popups()
+            if script_text.startswith("ERROR") or script_text.startswith("⚠️"):
+                st.error(script_text)
+                return
+
+            with st.expander("📄 View script", expanded=False):
+                st.write(script_text)
+
+            with st.spinner("Recording the audio overview..."):
+                audio_bytes, audio_err = generate_audio_overview_wav(script_text)
+
+            if audio_err:
+                st.error(f"Couldn't generate the audio ({audio_err}). The script above is still available to read.")
+            else:
+                st.success("Your Audio Overview is ready:")
+                st.audio(audio_bytes, format="audio/wav")
+                st.download_button("⬇️ Download audio", data=audio_bytes, file_name="audio_overview.wav", mime="audio/wav")
+                profile["analytics"]["audio_overviews_created"] = profile["analytics"].get("audio_overviews_created", 0) + 1
+                add_xp(profile, XP_REWARDS["audio_overview_created"], "audio_overview_created")
+                save_current()
+                render_gamification_popups()
+        else:
+            st.warning("Please provide a note or upload a file.")
+
+def build_audio_overview_script_prompt(content):
+    return f"{_who_line()} {_syllabus_notice('a two-host podcast-style audio overview script')} Write ONLY a short, natural, conversational script between two hosts discussing and explaining the notes below. Format EVERY line as exactly 'Host1: <line>' or 'Host2: <line>'. Notes: {content[:2000]}"
 
 def show_math_solver():
     st.header(t("🧠 AI Math Problem Solver"))
@@ -1883,8 +2613,6 @@ def show_math_solver():
     if st.button("Solve problem 🧮"):
         if math_img or math_query:
             with st.spinner("Your question is being solved by AI..."):
-                st.markdown('<div class="shimmer" style="height:150px;"></div>', unsafe_allow_html=True)
-                
                 prompt = build_math_prompt(math_query)
                 math_solution = get_ai_response(prompt, image=math_img)
                 st.success("Here is how to solve your question:")
@@ -1893,11 +2621,13 @@ def show_math_solver():
                 profile = current_profile()
                 profile["analytics"]["math_problems_solved"] = profile["analytics"].get("math_problems_solved", 0) + 1
                 add_xp(profile, XP_REWARDS["math_solved"], "math_solved")
-                profile["last_feature_used"] = "🧠"
                 save_current()
                 render_gamification_popups()
         else:
             st.warning("Please provide a question or image")
+
+def build_math_prompt(math_query):
+    return f"{_who_line()} {_syllabus_notice('a step-by-step math solution')} Solve ONLY this one math problem step-by-step: {math_query}. Act like a friendly tutor teaching a beginner."
 
 def show_flashcards():
     st.header(t("🗂️ Flashcards & Spaced Repetition"))
@@ -1915,7 +2645,7 @@ def show_flashcards():
             if profile["flashcards"]:
                 st.success("🎉 No cards due right now — you're all caught up! Come back tomorrow.")
             else:
-                st.info("You don't have any flashcards yet. Head to 'Generate New Cards' to create some.")
+                empty_state("🎴", "You don't have any flashcards yet. Head to 'Generate New Cards' to create some.")
         else:
             st.caption(f"{len(due_cards)} card(s) due today")
             review_idx = st.session_state.get("flash_review_idx", 0)
@@ -1925,25 +2655,9 @@ def show_flashcards():
 
             card = due_cards[review_idx]
             st.markdown(f"**Subject:** {card.get('subject', 'General')}  ·  Card {review_idx + 1}/{len(due_cards)}")
-            
-            is_flipped = st.session_state.get(f"flash_flipped_{card['id']}", False)
-            flip_class = "flipped" if is_flipped else ""
-            
-            st.markdown(f"""
-            <div class="flashcard-container">
-                <div class="flashcard {flip_class}" onclick="this.classList.toggle('flipped')">
-                    <div class="flashcard-face">
-                        <div>{card['front']}</div>
-                    </div>
-                    <div class="flashcard-face flashcard-back">
-                        <div>{card['back']}</div>
-                    </div>
-                </div>
-            </div>
-            <p style="text-align:center;color:var(--muted);font-size:0.8rem;">Click the card to flip it</p>
-            """, unsafe_allow_html=True)
-            
-            st.write("How well did you know this?")
+            render_flip_card(card["front"], card["back"], card["id"])
+
+            st.write("How well did you know this? (flip the card first)")
             g1, g2, g3, g4 = st.columns(4)
             grade_clicked = None
             if g1.button("😵 Again", use_container_width=True): grade_clicked = "again"
@@ -1958,100 +2672,51 @@ def show_flashcards():
                         break
                 profile["analytics"]["flashcards_reviewed"] = profile["analytics"].get("flashcards_reviewed", 0) + 1
                 add_xp(profile, XP_REWARDS["flashcard_review"], "flashcard_review")
-                profile["last_feature_used"] = "🎴"
                 save_current()
-                st.session_state[f"flash_flipped_{card['id']}"] = False
-                st.session_state.flash_review_idx = review_idx + 1
+                st.session_state.flash_review_idx = review_idx
                 render_gamification_popups()
                 st.rerun()
 
     with tab_generate:
-        st.subheader("📄 Upload PDF to Generate Flashcards")
-        st.caption("Upload a PDF document and AI will extract key concepts and create flashcards from it.")
-        
-        pdf_file = st.file_uploader("Upload PDF Document:", type=["pdf"], key="flash_pdf_upload")
-        
-        if pdf_file:
-            with st.spinner("Extracting text from PDF..."):
-                pdf_text = extract_text_from_pdf(pdf_file)
-                if pdf_text and len(pdf_text) > 50:
-                    st.success(f"✅ PDF loaded successfully! Extracted {len(pdf_text)} characters.")
-                    with st.expander("Preview extracted text (first 500 characters)"):
-                        st.text(pdf_text[:500] + "...")
-                else:
-                    st.warning("Could not extract enough text from the PDF. Please try another file.")
-                    pdf_text = None
-        else:
-            pdf_text = None
-        
-        st.markdown("---")
-        st.subheader("✏️ Or Enter Topic Manually")
-        
         gen_subject = st.text_input("Subject:", value="General Knowledge", key="flash_gen_subject")
-        gen_topic = st.text_area("Topic or Notes:", placeholder="Enter a topic or paste notes here...", key="flash_gen_topic")
+        gen_topic = st.text_input("Topic:", key="flash_gen_topic")
         gen_count = st.slider("Number of flashcards:", min_value=3, max_value=20, value=8, key="flash_gen_count")
-        
-        if st.button("✨ Generate Flashcards with AI", use_container_width=True):
-            if pdf_text and len(pdf_text) > 50:
-                content_to_use = pdf_text
-                source_type = "PDF document"
-            elif gen_topic.strip():
-                content_to_use = gen_topic.strip()
-                source_type = "topic"
-            else:
-                st.warning("Please either upload a PDF or enter a topic/notes to generate flashcards.")
-                return
-            
-            with st.spinner(f"Creating {gen_count} flashcards from {source_type}..."):
-                prompt = build_flashcards_prompt(gen_subject, content_to_use, gen_count)
-                raw_json = get_ai_response(prompt)
-                try:
-                    parsed = parse_quiz_json(raw_json)
-                    if parsed and len(parsed) > 0:
-                        for item in parsed:
-                            profile["flashcards"].append(new_flashcard(item["front"], item["back"], gen_subject))
-                        save_current()
-                        st.success(f"✅ Added {len(parsed)} new flashcards to your deck from {source_type}!")
-                        
-                        with st.expander("📋 Preview generated flashcards"):
-                            for i, item in enumerate(parsed[:5]):
-                                st.markdown(f"**{i+1}.** Q: {item['front']}")
-                                st.markdown(f"   A: {item['back']}")
-                                st.divider()
-                            if len(parsed) > 5:
-                                st.caption(f"... and {len(parsed) - 5} more cards generated.")
+
+        if st.button("✨ Generate Flashcards with AI"):
+            if gen_topic:
+                with st.spinner(f"Creating {gen_count} flashcards..."):
+                    offline_manager = OfflineContentManager()
+                    if offline_manager.is_online():
+                        prompt = build_flashcards_prompt(gen_subject, gen_topic, gen_count)
+                        raw_json = get_ai_response(prompt)
+                        try:
+                            parsed = parse_quiz_json(raw_json)
+                            for item in parsed:
+                                profile["flashcards"].append(new_flashcard(item["front"], item["back"], gen_subject))
+                            save_current()
+                            st.success(f"Added {len(parsed)} new flashcards to your deck!")
+                        except Exception:
+                            st.error("There was an error creating flashcards. Please try again.")
                     else:
-                        st.error("No flashcards were generated. Please try again with different content.")
-                except Exception as e:
-                    st.error(f"Error parsing AI response: {str(e)}")
-                    st.error("Please try again or use a different topic.")
-    
+                        offline_cards = offline_manager.load_offline_flashcards()
+                        for card in offline_cards[:gen_count]:
+                            profile["flashcards"].append(new_flashcard(card["front"], card["back"], gen_subject))
+                        save_current()
+                        st.success(f"Added {min(gen_count, len(offline_cards))} offline flashcards to your deck!")
+            else:
+                st.warning("Please give a topic")
+
     with tab_manage:
         if not profile["flashcards"]:
-            st.markdown("""
-            <div class="empty-state">
-                <div class="empty-state-icon">🗂️</div>
-                <div class="empty-state-text">No flashcards yet</div>
-                <div class="empty-state-hint">Generate your first set of flashcards above</div>
-            </div>
-            """, unsafe_allow_html=True)
+            empty_state("📋", "No flashcards yet.")
         else:
             subjects = sorted(set(c.get("subject", "General") for c in profile["flashcards"]))
-            
-            total_cards = len(profile["flashcards"])
-            total_due = len(due_cards)
-            st.info(f"📊 Total: {total_cards} cards · {total_due} due for review today")
-            
             for subj in subjects:
                 with st.expander(f"📁 {subj} ({sum(1 for c in profile['flashcards'] if c.get('subject')==subj)} cards)"):
-                    cards_in_subject = [c for c in profile["flashcards"] if c.get("subject") == subj]
-                    for c in cards_in_subject:
+                    for c in [card for card in profile["flashcards"] if card.get("subject") == subj]:
                         confirm_key = f"confirm_del_card_{c['id']}"
                         cc1, cc2 = st.columns([5, 1])
-                        
-                        due_status = "🔴 Due" if c.get("due_date", today_str) <= today_str else f"📅 Due: {c.get('due_date', 'N/A')}"
-                        cc1.markdown(f"**Q:** {c['front']}  \n**A:** {c['back']}  \n*{due_status} · Reps: {c['reps']}*")
-                        
+                        cc1.markdown(f"**Q:** {c['front']}  \n**A:** {c['back']}  \n*Due: {c['due_date']} · Reps: {c['reps']}*")
                         if not st.session_state.get(confirm_key):
                             if cc2.button("🗑️", key=f"del_card_{c['id']}"):
                                 st.session_state[confirm_key] = True
@@ -2068,42 +2733,10 @@ def show_flashcards():
                                 st.session_state.pop(confirm_key, None)
                                 st.rerun()
 
-def show_pomodoro():
-    st.header(t("⏱️ Pomodoro & Goal Progress Tracker"))
-    col1, col2 = st.columns(2)
-    profile = current_profile()
+def build_flashcards_prompt(subject, topic, count):
+    return f"{_who_line()} {_syllabus_notice('flashcards')} Subject: {subject}. Create ONLY exactly {count} flashcards for the topic '{topic}'. Return ONLY a raw JSON array of exactly {count} objects, each with keys 'front' and 'back'."
 
-    with col1:
-        st.subheader(t("🤖 AI Auto Task Generator"))
-        goal = st.text_input("What is your goal today?")
-        if st.button("Make Your Task List 📋"):
-            if goal:
-                with st.spinner("Your task list is being created by AI..."):
-                    prompt = build_goal_tasks_prompt(goal)
-                    ai_tasks = get_ai_response(prompt).split("\n")
-                    profile["todo_list"] = [t.strip("-• ").strip() for t in ai_tasks if t.strip()]
-                    add_xp(profile, XP_REWARDS["task_list_created"], "task_list_created")
-                    profile["last_feature_used"] = "⏱️"
-                    save_current()
-                    render_gamification_popups()
-
-        st.write("---")
-        st.subheader(t("🎯 Study Goal Tracker"))
-        todo_list = profile["todo_list"]
-        checked_count = 0
-        if todo_list:
-            for i, task in enumerate(todo_list):
-                if st.checkbox(task, key=f"saved_task_{i}"):
-                    checked_count += 1
-            progress_pct = int((checked_count / len(todo_list)) * 100)
-            st.markdown(f"**Daily Progress: {progress_pct}% Completed**")
-            st.progress(progress_pct)
-        else:
-            st.caption("You haven't created a Task List yet.")
-
-    with col2:
-        st.subheader(t("⏱️ Pomodoro Timer"))
-        render_pomodoro_timer()
+# ==================== POMODORO TIMER ====================
 
 def _pomodoro_defaults():
     st.session_state.setdefault("pomo_duration", 25 * 60)
@@ -2118,8 +2751,12 @@ def _finish_pomodoro_session(profile, minutes, completed):
     if completed:
         profile["analytics"]["pomodoro_sessions"] += 1
         profile["pomodoro_history"].append({"date": str(date.today()), "minutes": minutes})
+        hour_now = datetime.now().hour
+        if hour_now >= 21:
+            profile["analytics"]["night_sessions"] = profile["analytics"].get("night_sessions", 0) + 1
+        elif hour_now < 7:
+            profile["analytics"]["morning_sessions"] = profile["analytics"].get("morning_sessions", 0) + 1
         add_xp(profile, XP_REWARDS["pomodoro_session"], "pomodoro_session")
-        profile["last_feature_used"] = "⏱️"
         save_current()
     else:
         st.info("Timer paused — no worries, pick up whenever you're ready.")
@@ -2193,6 +2830,9 @@ def render_pomodoro_timer():
         st.success(t("Great job! Now take a short break. ☕"))
         render_gamification_popups()
 
+def show_pomodoro():
+    show_pomodoro_with_soundscapes()
+
 def show_scribble_pad():
     st.header(t("📝 Quick Scribble Pad / Sticky Notes"))
     st.caption(t("Quickly note down important ideas here."))
@@ -2203,7 +2843,6 @@ def show_scribble_pad():
         submitted = st.form_submit_button("➕ Add Note")
         if submitted and new_note.strip():
             profile["scribble_notes"].append(new_note.strip())
-            profile["last_feature_used"] = "✍️"
             save_current()
 
     st.write("---")
@@ -2229,13 +2868,7 @@ def show_scribble_pad():
                         st.session_state.pop(confirm_key, None)
                         st.rerun()
     else:
-        st.markdown("""
-        <div class="empty-state">
-            <div class="empty-state-icon">✍️</div>
-            <div class="empty-state-text">No notes yet</div>
-            <div class="empty-state-hint">Add your first note above to capture ideas</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.info("No notes found. Add a new note above.")
 
 def show_analytics():
     st.header(t("📊 Personal Study Analytics"))
@@ -2256,7 +2889,7 @@ def show_analytics():
         st.markdown(chips_html, unsafe_allow_html=True)
 
     st.write("---")
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
     col1.metric("MCQ Quizzes Taken", analytics["quiz_taken"])
     accuracy = 0
     if analytics["total_questions"] > 0:
@@ -2264,1088 +2897,141 @@ def show_analytics():
     col2.metric("MCQ Accuracy", f"{accuracy}%")
     col3.metric("Pomodoro Sessions", analytics["pomodoro_sessions"])
     col4.metric("Math Problems Solved", analytics.get("math_problems_solved", 0))
+    col5.metric("Audio Overviews", analytics.get("audio_overviews_created", 0))
+
+    st.write("---")
+    st.subheader("📊 Subject Mastery")
+    subject_stats = []
+    if analytics.get("science_questions", 0) > 0:
+        subject_stats.append(("Science", analytics.get("science_questions", 0)))
+    if analytics.get("math_problems_solved", 0) > 0:
+        subject_stats.append(("Math", analytics.get("math_problems_solved", 0)))
+    if analytics.get("history_questions", 0) > 0:
+        subject_stats.append(("History", analytics.get("history_questions", 0)))
+    if subject_stats:
+        render_custom_bars(subject_stats)
+    else:
+        empty_state("📊", "Complete subject-specific activities to see mastery stats here.")
 
     st.write("---")
     st.subheader(t("📈 Overall Score vs Missed Questions"))
     if analytics["total_questions"] > 0:
-        chart_data = pd.DataFrame({
-            "Activity": ["Correct Answers", "Incorrect Answers"],
-            "Count": [analytics["total_score"], analytics["total_questions"] - analytics["total_score"]],
-        })
-        st.bar_chart(data=chart_data, x="Activity", y="Count", use_container_width=True)
+        render_custom_bars([
+            ("Correct Answers", analytics["total_score"]),
+            ("Incorrect Answers", analytics["total_questions"] - analytics["total_score"]),
+        ])
+    else:
+        empty_state("📈", "No quizzes taken yet — your score breakdown will show up here.")
 
     st.subheader(t("⏱️ Pomodoro Minutes Over Time"))
     pom_history = profile.get("pomodoro_history", [])
     if pom_history:
         pdf = pd.DataFrame(pom_history)
-        pdf = pdf.groupby("date", as_index=False).agg(minutes=("minutes", "sum"))
-        st.bar_chart(data=pdf, x="date", y="minutes", use_container_width=True)
+        pdf = pdf.groupby("date", as_index=False).agg(minutes=("minutes", "sum")).tail(14)
+        render_custom_bars(list(zip(pdf["date"], pdf["minutes"])), unit=" min")
+    else:
+        empty_state("⏱️", "No focus sessions logged yet — complete a Pomodoro session to see your history here.")
     
-    profile["last_feature_used"] = "📊"
-    save_current()
+    st.write("---")
+    st.subheader("📝 Exam History")
+    exam_history = profile.get("exam_history", [])
+    if exam_history:
+        exam_df = pd.DataFrame(exam_history)
+        st.dataframe(exam_df[["date", "subject", "score", "total"]], use_container_width=True, hide_index=True)
+    else:
+        empty_state("📝", "No exams taken yet — try the Exam Examiner feature!")
 
-def show_audio_overview():
-    """🎧 Text-to-Speech Audio Overview - Convert notes/lessons to audio"""
-    st.header("🎧 Audio Overview Generator")
-    st.caption("Turn your notes and lessons into audio overviews for listening on the go")
-    
-    profile = current_profile()
-    
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        st.subheader("📝 Content Input")
-        
-        content_source = st.radio(
-            "Choose content source:",
-            ["Paste text", "Upload PDF", "Upload Image"],
-            horizontal=True,
-            key="audio_source"
-        )
-        
-        input_text = ""
-        img = None
-        
-        if content_source == "Paste text":
-            input_text = st.text_area(
-                "Paste your notes or lesson content here:",
-                height=200,
-                placeholder="Paste your study notes, lesson content, or any text you want to convert to audio...",
-                key="audio_text_input"
-            )
-        elif content_source == "Upload PDF":
-            pdf_file = st.file_uploader("Upload PDF document:", type=["pdf"], key="audio_pdf")
-            if pdf_file:
-                with st.spinner("Extracting text from PDF..."):
-                    extracted_text = extract_text_from_pdf(pdf_file)
-                    if extracted_text and len(extracted_text) > 50:
-                        st.success(f"✅ Extracted {len(extracted_text)} characters")
-                        with st.expander("Preview extracted text"):
-                            st.text(extracted_text[:500] + "..." if len(extracted_text) > 500 else extracted_text)
-                        input_text = extracted_text
-                    else:
-                        st.warning("Could not extract enough text from the PDF. Please try another file.")
-        else:
-            img_file = st.file_uploader("Upload image (PNG, JPG):", type=["png", "jpg", "jpeg"], key="audio_img")
-            if img_file:
-                img = Image.open(img_file)
-                st.image(img, width=300, caption="Uploaded Image")
-                st.info("AI will read text from the image and convert it to audio.")
-                st.session_state.audio_img = img
-    
-    with col2:
-        st.subheader("🎵 Audio Settings")
-        
-        audio_style = st.selectbox(
-            "Audio Style:",
-            ["overview", "detailed", "study_guide"],
-            format_func=lambda x: {
-                "overview": "📊 Quick Overview",
-                "detailed": "📚 Detailed Lesson",
-                "study_guide": "📝 Study Guide"
-            }.get(x, x),
-            key="audio_style"
-        )
-        
-        speech_speed = st.slider(
-            "Speech Speed:",
-            min_value=0.5,
-            max_value=2.0,
-            value=1.0,
-            step=0.1,
-            help="1.0 is normal speed, 0.5 is half speed, 2.0 is double speed"
-        )
-        
-        voice_pitch = st.slider(
-            "Voice Pitch:",
-            min_value=0.5,
-            max_value=2.0,
-            value=1.0,
-            step=0.1,
-            help="1.0 is normal pitch"
-        )
-        
-        st.divider()
-        char_count = len(input_text)
-        st.caption(f"📊 Content length: {char_count} characters")
-        if char_count > 5000:
-            st.warning("⚠️ Long content will be truncated to 5000 characters for processing.")
-    
-    st.divider()
-    
-    if st.button("🎧 Generate Audio Overview", use_container_width=True, type="primary"):
-        if not input_text and not img:
-            st.error("Please provide content to convert to audio.")
-            return
-        
-        with st.spinner("Generating audio script with AI..."):
-            content_to_use = input_text if input_text else "Image content (analyzed by AI)"
-            prompt = build_audio_overview_prompt(content_to_use, audio_style)
-            img_to_send = st.session_state.get("audio_img") if content_source == "Upload Image" else None
-            script = get_ai_response(prompt, image=img_to_send)
-            
-            if "ERROR" in script or "⚠️" in script:
-                st.error("Failed to generate audio script. Please try again.")
-                st.write(script)
-                return
-            
-            st.session_state.audio_script = script
-            st.session_state.audio_style_used = audio_style
-            st.session_state.speech_speed = speech_speed
-            st.session_state.voice_pitch = voice_pitch
-            
-            add_xp(profile, 10, "audio_overview_created")
-            profile["last_feature_used"] = "🎧"
-            save_current()
-            render_gamification_popups()
-            
-            st.success("✅ Audio script generated successfully!")
-            st.rerun()
-    
-    if "audio_script" in st.session_state:
-        st.divider()
-        st.subheader("🎧 Audio Player")
-        
-        with st.expander("📄 View Audio Script", expanded=False):
-            st.text(st.session_state.audio_script)
-        
-        st.markdown("""
-        <div class="audio-player-container">
-            <div style="margin-bottom: 12px; font-weight: 600; color: var(--text);">
-                🔊 Audio Overview
-            </div>
-            <div class="audio-controls">
-                <button id="playAudioBtn" onclick="playAudio()">▶️ Play</button>
-                <button id="pauseAudioBtn" onclick="pauseAudio()">⏸️ Pause</button>
-                <button id="stopAudioBtn" onclick="stopAudio()">⏹️ Stop</button>
-                <span class="status-indicator" id="audioStatus">⏸️ Ready</span>
-            </div>
-        </div>
-        
-        <script>
-        let utterance = null;
-        let isPlaying = false;
-        let audioScript = null;
-        
-        function getAudioScript() {
-            if (!audioScript) {
-                const scriptElement = document.querySelector('[data-testid="stExpander"] .stMarkdown');
-                if (scriptElement) {
-                    audioScript = scriptElement.textContent || '';
-                }
-            }
-            return audioScript;
-        }
-        
-        function playAudio() {
-            const script = getAudioScript();
-            if (!script || script.trim() === '') {
-                document.getElementById('audioStatus').textContent = '⚠️ No script available';
-                return;
-            }
-            
-            window.speechSynthesis.cancel();
-            utterance = new SpeechSynthesisUtterance(script);
-            utterance.rate = 1.0;
-            utterance.pitch = 1.0;
-            utterance.volume = 1.0;
-            
-            const voices = window.speechSynthesis.getVoices();
-            if (voices.length > 0) {
-                const preferredVoice = voices.find(v => v.lang.startsWith('en') && v.name.includes('Female'));
-                if (preferredVoice) {
-                    utterance.voice = preferredVoice;
-                } else if (voices.find(v => v.lang.startsWith('en'))) {
-                    utterance.voice = voices.find(v => v.lang.startsWith('en'));
-                }
-            }
-            
-            utterance.onstart = function() {
-                isPlaying = true;
-                document.getElementById('audioStatus').textContent = '▶️ Playing...';
-                document.getElementById('playAudioBtn').disabled = true;
-            };
-            
-            utterance.onend = function() {
-                isPlaying = false;
-                document.getElementById('audioStatus').textContent = '✅ Complete';
-                document.getElementById('playAudioBtn').disabled = false;
-            };
-            
-            utterance.onerror = function(event) {
-                isPlaying = false;
-                document.getElementById('audioStatus').textContent = '⚠️ Error: ' + event.error;
-                document.getElementById('playAudioBtn').disabled = false;
-            };
-            
-            window.speechSynthesis.speak(utterance);
-            document.getElementById('audioStatus').textContent = '▶️ Starting...';
-        }
-        
-        function pauseAudio() {
-            if (window.speechSynthesis.speaking) {
-                window.speechSynthesis.pause();
-                document.getElementById('audioStatus').textContent = '⏸️ Paused';
-            } else {
-                document.getElementById('audioStatus').textContent = '⏸️ Nothing playing';
-            }
-        }
-        
-        function stopAudio() {
-            window.speechSynthesis.cancel();
-            isPlaying = false;
-            document.getElementById('audioStatus').textContent = '⏹️ Stopped';
-            document.getElementById('playAudioBtn').disabled = false;
-        }
-        
-        window.speechSynthesis.onvoiceschanged = function() {
-            window.speechSynthesis.getVoices();
-        };
-        </script>
-        """, unsafe_allow_html=True)
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            script_text = st.session_state.audio_script
-            st.download_button(
-                label="📥 Download Script (TXT)",
-                data=script_text,
-                file_name=f"audio_overview_{date.today()}.txt",
-                mime="text/plain",
-                use_container_width=True
-            )
-        
-        with col2:
-            if st.button("🔄 Regenerate Script", use_container_width=True):
-                st.session_state.pop("audio_script", None)
-                st.rerun()
-        
-        with col3:
-            if st.button("❌ Clear Audio", use_container_width=True):
-                st.session_state.pop("audio_script", None)
-                st.session_state.pop("audio_img", None)
-                st.rerun()
-        
-        with st.expander("💡 Tips for best results"):
-            st.markdown("""
-            **For best audio quality:**
-            - Keep content concise and well-structured
-            - Use short sentences for better natural speech
-            - Include section headers to help the AI organize the content
-            - The AI will automatically add natural pauses and emphasis
-            
-            **Browser compatibility:**
-            - Works best on Chrome, Edge, and Safari
-            - Firefox has limited voice support
-            - Mobile devices may use system voices
-            
-            **Troubleshooting:**
-            - If no sound plays, check your device volume
-            - Try a different browser if voices aren't available
-            - For long content, the script may take a moment to generate
-            """)
+# ==================== PAGE ROUTING - COMPACT DOCK ====================
 
-def show_settings():
-    """⚙️ Settings page - consolidated language, theme, account settings"""
-    st.header("⚙️ Settings")
-    profile = current_profile()
-    
-    # Initialize custom theme with hex values only
-    if "custom_theme" not in profile:
-        profile["custom_theme"] = {
-            "enabled": False,
-            "primary_color": "#7C8CFF",
-            "secondary_color": "#C77DFF",
-            "background_start": "#05070D",
-            "background_mid": "#11141F",
-            "text_color": "#F5F7FA",
-            "card_color": "#1A1A2E",
-            "accent_color": "#1A1A2E",
-            "border_color": "#2A2A3E",
-            "background_image": None,
-            "glass_blur": 22,
-            "glass_opacity": 0.06,
-            "glass_saturation": 180,
-            "glow_intensity": 60,
-            "solid_bg": "#05070D",
-            "grad_start": "#05070D",
-            "grad_end": "#1a1a3e",
-            "grad_angle": 135,
-            "bg_blur": 0,
-            "particle_density": "Medium",
-            "particle_color": "#7C8CFF",
-            "particle_speed": 3,
-        }
-        save_current()
-        st.rerun()
-    
-    custom_theme = profile["custom_theme"]
-    
-    tab1, tab2, tab3, tab4 = st.tabs(["🌐 Language", "🎨 Theme Builder", "🔐 Account", "💾 Data"])
-    
-    with tab1:
-        st.subheader("Language Settings")
-        current_lang = profile.get("language", "en")
-        lang_options = {"en": "English", "si": "Sinhala (සිංහල)"}
-        new_lang = st.selectbox(
-            "Select your preferred language:",
-            options=list(lang_options.keys()),
-            format_func=lambda x: lang_options[x],
-            index=0 if current_lang == "en" else 1
-        )
-        if new_lang != current_lang:
-            profile["language"] = new_lang
-            save_current()
-            st.success("Language updated! The app will reload with your new language.")
-            st.rerun()
-    
-    with tab2:
-        st.subheader("🎨 Custom Theme Builder")
-        st.caption("Design your own unique color scheme and appearance for the app")
-        
-        theme_tab1, theme_tab2, theme_tab3, theme_tab4 = st.tabs(["🎨 Colors", "🖼️ Background", "✨ Glass Effects", "📦 Presets"])
-        
-        with theme_tab1:
-            st.subheader("Color Customization")
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.markdown("### Primary Colors")
-                primary = st.color_picker(
-                    "Primary Color (Accent 1):",
-                    value=custom_theme.get("primary_color", "#7C8CFF"),
-                    key="theme_primary"
-                )
-                secondary = st.color_picker(
-                    "Secondary Color (Accent 2):",
-                    value=custom_theme.get("secondary_color", "#C77DFF"),
-                    key="theme_secondary"
-                )
-                
-                st.markdown("### Text Colors")
-                text = st.color_picker(
-                    "Text Color:",
-                    value=custom_theme.get("text_color", "#F5F7FA"),
-                    key="theme_text"
-                )
-            
-            with col2:
-                st.markdown("### Background Colors")
-                bg_start = st.color_picker(
-                    "Background Start:",
-                    value=custom_theme.get("background_start", "#05070D"),
-                    key="theme_bg_start"
-                )
-                bg_mid = st.color_picker(
-                    "Background Middle:",
-                    value=custom_theme.get("background_mid", "#11141F"),
-                    key="theme_bg_mid"
-                )
-                
-                st.markdown("### Card & Border Colors")
-                card = st.color_picker(
-                    "Card Background:",
-                    value=custom_theme.get("card_color", "#1A1A2E"),
-                    key="theme_card"
-                )
-                border = st.color_picker(
-                    "Border Color:",
-                    value=custom_theme.get("border_color", "#2A2A3E"),
-                    key="theme_border"
-                )
-            
-            st.markdown("---")
-            st.markdown("### 🎯 Live Preview")
-            
-            def hex_to_rgba(hex_color, alpha=0.06):
-                hex_color = hex_color.lstrip('#')
-                if len(hex_color) == 6:
-                    r, g, b = int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
-                    return f"rgba({r}, {g}, {b}, {alpha})"
-                return hex_color
-            
-            card_rgba = hex_to_rgba(card, 0.06)
-            border_rgba = hex_to_rgba(border, 0.14)
-            
-            st.markdown(f"""
-            <div class="theme-preview" style="background: linear-gradient(135deg, {bg_start} 0%, {bg_mid} 50%, {bg_start} 100%); border: 1px solid {border_rgba};">
-                <div class="preview-card" style="background: {card_rgba}; border: 1px solid {border_rgba}; color: {text};">
-                    <h3 style="color: {text};">Sample Card</h3>
-                    <p style="color: {text};">This is how your theme will look</p>
-                    <div style="display: flex; gap: 10px; flex-wrap: wrap; margin: 10px 0;">
-                        <span class="preview-accent" style="background: linear-gradient(135deg, {primary}, {secondary});">Button</span>
-                        <span class="preview-accent" style="background: {card_rgba}; border: 1px solid {primary}; color: {text};">Secondary</span>
-                    </div>
-                    <p style="color: {text}99;">Muted text appears like this</p>
-                    <div style="background: {primary}22; border-left: 4px solid {primary}; padding: 10px; border-radius: 8px;">
-                        <p style="color: {text};">Highlighted content</p>
-                    </div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            if st.button("💾 Save Color Theme", use_container_width=True):
-                custom_theme["primary_color"] = primary
-                custom_theme["secondary_color"] = secondary
-                custom_theme["background_start"] = bg_start
-                custom_theme["background_mid"] = bg_mid
-                custom_theme["text_color"] = text
-                custom_theme["card_color"] = card
-                custom_theme["border_color"] = border
-                custom_theme["enabled"] = True
-                save_current()
-                st.success("✅ Color theme saved successfully!")
-                st.rerun()
-        
-        with theme_tab2:
-            st.subheader("Background Customization")
-            
-            bg_option = st.radio(
-                "Background Type:",
-                ["Solid Color", "Gradient", "Upload Image", "Particles"],
-                horizontal=True,
-                key="bg_type"
-            )
-            
-            if bg_option == "Solid Color":
-                solid_color = st.color_picker(
-                    "Choose background color:",
-                    value=custom_theme.get("solid_bg", "#05070D"),
-                    key="solid_bg"
-                )
-                custom_theme["solid_bg"] = solid_color
-                
-                st.markdown(f"""
-                <style>
-                .stApp {{
-                    background: {solid_color} !important;
-                }}
-                </style>
-                """, unsafe_allow_html=True)
-                
-            elif bg_option == "Gradient":
-                col1, col2 = st.columns(2)
-                with col1:
-                    grad_start = st.color_picker(
-                        "Gradient Start:",
-                        value=custom_theme.get("grad_start", "#05070D"),
-                        key="grad_start"
-                    )
-                with col2:
-                    grad_end = st.color_picker(
-                        "Gradient End:",
-                        value=custom_theme.get("grad_end", "#1a1a3e"),
-                        key="grad_end"
-                    )
-                
-                grad_angle = st.slider(
-                    "Gradient Angle:",
-                    min_value=0,
-                    max_value=360,
-                    value=custom_theme.get("grad_angle", 135),
-                    step=5,
-                    key="grad_angle"
-                )
-                
-                custom_theme["grad_start"] = grad_start
-                custom_theme["grad_end"] = grad_end
-                custom_theme["grad_angle"] = grad_angle
-                
-                st.markdown(f"""
-                <style>
-                .stApp {{
-                    background: linear-gradient({grad_angle}deg, {grad_start}, {grad_end}) !important;
-                }}
-                </style>
-                """, unsafe_allow_html=True)
-                
-            elif bg_option == "Upload Image":
-                st.info("Upload an image to use as your background. Recommended: 1920x1080 or larger.")
-                
-                bg_image = st.file_uploader(
-                    "Upload Background Image:",
-                    type=["jpg", "jpeg", "png", "webp"],
-                    key="bg_image_upload"
-                )
-                
-                if bg_image:
-                    import base64
-                    image_data = bg_image.getvalue()
-                    b64_image = base64.b64encode(image_data).decode()
-                    
-                    st.session_state.bg_image_data = b64_image
-                    st.image(bg_image, use_container_width=True)
-                    
-                    st.markdown(f"""
-                    <style>
-                    .stApp {{
-                        background: url(data:image/{bg_image.type.split('/')[-1]};base64,{b64_image}) !important;
-                        background-size: cover !important;
-                        background-position: center !important;
-                        background-attachment: fixed !important;
-                    }}
-                    .stApp::before {{
-                        content: "";
-                        position: fixed;
-                        top: 0;
-                        left: 0;
-                        width: 100%;
-                        height: 100%;
-                        background: rgba(0,0,0,0.4);
-                        z-index: 0;
-                    }}
-                    [data-testid="stAppViewContainer"] {{
-                        position: relative;
-                        z-index: 1;
-                    }}
-                    </style>
-                    """, unsafe_allow_html=True)
-                    
-                    st.success("✅ Background image applied!")
-                    
-                    blur_amount = st.slider(
-                        "Blur Amount:",
-                        min_value=0,
-                        max_value=20,
-                        value=custom_theme.get("bg_blur", 0),
-                        step=1,
-                        key="bg_blur"
-                    )
-                    custom_theme["bg_blur"] = blur_amount
-                    
-                    if blur_amount > 0:
-                        st.markdown(f"""
-                        <style>
-                        .stApp {{
-                            backdrop-filter: blur({blur_amount}px) !important;
-                        }}
-                        </style>
-                        """, unsafe_allow_html=True)
-            
-            elif bg_option == "Particles":
-                st.info("✨ Animated particle background (lightweight CSS animation)")
-                
-                particle_density = st.select_slider(
-                    "Particle Density:",
-                    options=["Low", "Medium", "High"],
-                    value=custom_theme.get("particle_density", "Medium"),
-                    key="particle_density"
-                )
-                
-                particle_color = st.color_picker(
-                    "Particle Color:",
-                    value=custom_theme.get("particle_color", "#7C8CFF"),
-                    key="particle_color"
-                )
-                
-                particle_speed = st.slider(
-                    "Animation Speed:",
-                    min_value=1,
-                    max_value=10,
-                    value=custom_theme.get("particle_speed", 3),
-                    step=1,
-                    key="particle_speed"
-                )
-                
-                custom_theme["particle_density"] = particle_density
-                custom_theme["particle_color"] = particle_color
-                custom_theme["particle_speed"] = particle_speed
-                
-                particle_count = {"Low": 30, "Medium": 60, "High": 100}[particle_density]
-                
-                particles_html = ""
-                for i in range(particle_count):
-                    size = 3 + (i % 5)
-                    x = i * (100 / particle_count)
-                    y = (i * 37) % 100
-                    delay = (i * 0.3) % 5
-                    duration = 5 + (i % 10)
-                    particles_html += f"""
-                    <div class="particle" style="
-                        left: {x}%;
-                        top: {y}%;
-                        width: {size}px;
-                        height: {size}px;
-                        background: {particle_color};
-                        animation-delay: {delay}s;
-                        animation-duration: {duration}s;
-                        opacity: {0.3 + (i % 5) * 0.1};
-                    "></div>
-                    """
-                
-                st.markdown(f"""
-                <style>
-                .particle-container {{
-                    position: fixed;
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 100%;
-                    pointer-events: none;
-                    z-index: 0;
-                    overflow: hidden;
-                }}
-                .particle {{
-                    position: absolute;
-                    border-radius: 50%;
-                    animation: float-particle {particle_speed * 2}s ease-in-out infinite alternate;
-                }}
-                @keyframes float-particle {{
-                    0% {{ transform: translate(0, 0) scale(1); }}
-                    100% {{ transform: translate(50px, -50px) scale(1.5); }}
-                }}
-                </style>
-                <div class="particle-container">
-                    {particles_html}
-                </div>
-                """, unsafe_allow_html=True)
-                
-                st.success("✅ Particle background activated!")
-            
-            if st.button("💾 Save Background Settings", use_container_width=True):
-                save_current()
-                st.success("✅ Background settings saved!")
-                st.rerun()
-        
-        with theme_tab3:
-            st.subheader("Glass Effects Customization")
-            
-            glass_blur = st.slider(
-                "Glass Blur Intensity:",
-                min_value=5,
-                max_value=40,
-                value=custom_theme.get("glass_blur", 22),
-                step=1,
-                key="glass_blur",
-                help="Higher values create more frosted glass effect"
-            )
-            
-            glass_opacity = st.slider(
-                "Glass Opacity:",
-                min_value=0.05,
-                max_value=0.4,
-                value=custom_theme.get("glass_opacity", 0.06),
-                step=0.01,
-                key="glass_opacity",
-                help="Opacity of the glass panels"
-            )
-            
-            glass_saturation = st.slider(
-                "Color Saturation:",
-                min_value=100,
-                max_value=250,
-                value=custom_theme.get("glass_saturation", 180),
-                step=5,
-                key="glass_saturation",
-                help="Saturation of colors behind glass"
-            )
-            
-            glow_intensity = st.slider(
-                "Glow Intensity:",
-                min_value=0,
-                max_value=100,
-                value=custom_theme.get("glow_intensity", 60),
-                step=5,
-                key="glow_intensity",
-                help="Glow effect on accent colors"
-            )
-            
-            st.markdown("### Preview")
-            glass_color = f"rgba(255, 255, 255, {glass_opacity})"
-            
-            st.markdown(f"""
-            <div style="
-                background: {glass_color};
-                backdrop-filter: blur({glass_blur}px) saturate({glass_saturation}%);
-                -webkit-backdrop-filter: blur({glass_blur}px) saturate({glass_saturation}%);
-                border: 1px solid rgba(255, 255, 255, 0.14);
-                border-radius: 18px;
-                padding: 30px;
-                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.18);
-                color: white;
-                text-align: center;
-            ">
-                <h3>Glass Effect Preview</h3>
-                <p>Blur: {glass_blur}px | Opacity: {glass_opacity:.2f} | Saturation: {glass_saturation}%</p>
-                <div style="display: flex; gap: 10px; justify-content: center; margin-top: 10px;">
-                    <span style="background: linear-gradient(135deg, {custom_theme.get('primary_color', '#7C8CFF')}, {custom_theme.get('secondary_color', '#C77DFF')}); padding: 8px 16px; border-radius: 10px; box-shadow: 0 0 {glow_intensity}px rgba(124, 140, 255, 0.4);">Glowing Element</span>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            custom_theme["glass_blur"] = glass_blur
-            custom_theme["glass_opacity"] = glass_opacity
-            custom_theme["glass_saturation"] = glass_saturation
-            custom_theme["glow_intensity"] = glow_intensity
-            
-            if st.button("💾 Save Glass Settings", use_container_width=True):
-                save_current()
-                st.success("✅ Glass settings saved!")
-                st.rerun()
-        
-        with theme_tab4:
-            st.subheader("Theme Presets")
-            st.caption("Quickly apply pre-designed themes")
-            
-            presets = {
-                "Liquid Glass (Default)": {
-                    "primary": "#7C8CFF",
-                    "secondary": "#C77DFF",
-                    "bg_start": "#05070D",
-                    "bg_mid": "#11141F",
-                    "text": "#F5F7FA",
-                    "card": "#1A1A2E",
-                    "border": "#2A2A3E",
-                },
-                "Midnight Aurora": {
-                    "primary": "#00D4FF",
-                    "secondary": "#7B2FBE",
-                    "bg_start": "#0a0a1a",
-                    "bg_mid": "#1a0a2e",
-                    "text": "#E0E7FF",
-                    "card": "#0D1A2B",
-                    "border": "#1A2A4A",
-                },
-                "Warm Sunset": {
-                    "primary": "#FF6B35",
-                    "secondary": "#FFD93D",
-                    "bg_start": "#1a0a0a",
-                    "bg_mid": "#2a1510",
-                    "text": "#FFF5E6",
-                    "card": "#2A1A10",
-                    "border": "#3A2A20",
-                },
-                "Forest Calm": {
-                    "primary": "#4CAF50",
-                    "secondary": "#8BC34A",
-                    "bg_start": "#0a1a0a",
-                    "bg_mid": "#102010",
-                    "text": "#E8F5E9",
-                    "card": "#0A1A0A",
-                    "border": "#1A2A1A",
-                },
-                "Ocean Deep": {
-                    "primary": "#0077B6",
-                    "secondary": "#00B4D8",
-                    "bg_start": "#050a15",
-                    "bg_mid": "#0a1520",
-                    "text": "#E0F7FA",
-                    "card": "#0A1520",
-                    "border": "#152A3A",
-                },
-                "Neon Dream": {
-                    "primary": "#FF006E",
-                    "secondary": "#FFD93D",
-                    "bg_start": "#0a000a",
-                    "bg_mid": "#1a001a",
-                    "text": "#FFE0FF",
-                    "card": "#1A001A",
-                    "border": "#2A0A2A",
-                },
-                "Minimal Light": {
-                    "primary": "#3B82F6",
-                    "secondary": "#8B5CF6",
-                    "bg_start": "#F8FAFC",
-                    "bg_mid": "#E2E8F0",
-                    "text": "#1E293B",
-                    "card": "#FFFFFF",
-                    "border": "#CBD5E1",
-                },
-            }
-            
-            cols = st.columns(3)
-            for idx, (preset_name, preset_colors) in enumerate(presets.items()):
-                col = cols[idx % 3]
-                with col:
-                    def hex_to_rgba_preview(hex_color, alpha=0.06):
-                        hex_color = hex_color.lstrip('#')
-                        if len(hex_color) == 6:
-                            r, g, b = int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
-                            return f"rgba({r}, {g}, {b}, {alpha})"
-                        return hex_color
-                    
-                    card_rgba = hex_to_rgba_preview(preset_colors["card"], 0.06)
-                    border_rgba = hex_to_rgba_preview(preset_colors["border"], 0.14)
-                    
-                    st.markdown(f"""
-                    <div style="
-                        background: linear-gradient(135deg, {preset_colors['bg_start']}, {preset_colors['bg_mid']});
-                        border: 1px solid {border_rgba};
-                        border-radius: 14px;
-                        padding: 16px;
-                        margin: 8px 0;
-                    ">
-                        <div style="
-                            background: {card_rgba};
-                            backdrop-filter: blur(10px);
-                            border: 1px solid {border_rgba};
-                            border-radius: 10px;
-                            padding: 12px;
-                            color: {preset_colors['text']};
-                        ">
-                            <div style="display: flex; gap: 8px; margin-bottom: 8px;">
-                                <span style="background: {preset_colors['primary']}; width: 20px; height: 20px; border-radius: 50%; display: inline-block;"></span>
-                                <span style="background: {preset_colors['secondary']}; width: 20px; height: 20px; border-radius: 50%; display: inline-block;"></span>
-                            </div>
-                            <strong>{preset_name}</strong>
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    if st.button(f"Apply", key=f"preset_{idx}"):
-                        custom_theme["primary_color"] = preset_colors["primary"]
-                        custom_theme["secondary_color"] = preset_colors["secondary"]
-                        custom_theme["background_start"] = preset_colors["bg_start"]
-                        custom_theme["background_mid"] = preset_colors["bg_mid"]
-                        custom_theme["text_color"] = preset_colors["text"]
-                        custom_theme["card_color"] = preset_colors["card"]
-                        custom_theme["border_color"] = preset_colors["border"]
-                        custom_theme["enabled"] = True
-                        save_current()
-                        st.success(f"✅ Applied {preset_name} theme!")
-                        st.rerun()
-            
-            st.markdown("---")
-            if st.button("🔄 Reset to Default Theme", use_container_width=True, type="primary"):
-                custom_theme["enabled"] = False
-                save_current()
-                st.success("✅ Reset to default theme!")
-                st.rerun()
-        
-        st.markdown("---")
-        col1, col2 = st.columns([1, 3])
-        with col1:
-            enabled = st.toggle(
-                "Enable Custom Theme",
-                value=custom_theme.get("enabled", False),
-                key="theme_enabled"
-            )
-        
-        with col2:
-            if enabled:
-                st.success("🟢 Custom theme is active")
-            else:
-                st.info("⚪ Using default Liquid Glass theme")
-        
-        if enabled != custom_theme.get("enabled", False):
-            custom_theme["enabled"] = enabled
-            save_current()
-            st.rerun()
-    
-    with tab3:
-        st.subheader("Account Settings")
-        st.write(f"**Username:** {st.session_state.active_user}")
-        st.write(f"**Email:** {profile.get('email', 'Not set')}")
-        st.write(f"**Auth Method:** {profile.get('auth_provider', 'password').title()}")
-        
-        if profile.get("auth_provider") == "password":
-            st.write("---")
-            st.subheader("Change Password")
-            old_pw = st.text_input("Current Password:", type="password", key="settings_old_pw")
-            new_pw = st.text_input("New Password:", type="password", key="settings_new_pw")
-            confirm_pw = st.text_input("Confirm New Password:", type="password", key="settings_confirm_pw")
-            
-            if st.button("Update Password", key="settings_update_pw"):
-                if len(new_pw) < 8:
-                    st.error("Password must be at least 8 characters.")
-                elif new_pw != confirm_pw:
-                    st.error("Passwords don't match.")
-                elif not verify_password(old_pw, profile.get("password_hash", "")):
-                    st.error("Current password is incorrect.")
-                else:
-                    profile["password_hash"] = hash_password(new_pw)
-                    save_current()
-                    st.success("Password updated successfully!")
-        
-        if st.button("🗑️ Delete Account", use_container_width=True, key="settings_delete_account"):
-            st.warning("⚠️ This will permanently delete your account and all data. This cannot be undone.")
-            confirm = st.text_input("Type your username to confirm deletion:")
-            if st.button("Confirm Delete", use_container_width=True, key="settings_confirm_delete"):
-                if confirm == st.session_state.active_user:
-                    conn = get_db_connection()
-                    try:
-                        with _db_lock:
-                            conn.execute("DELETE FROM profiles WHERE username = ?", (st.session_state.active_user,))
-                            conn.commit()
-                    finally:
-                        conn.close()
-                    del st.session_state.all_data["users"][st.session_state.active_user]
-                    st.session_state.active_user = None
-                    st.session_state.auth_method = None
-                    st.success("Account deleted successfully.")
-                    st.rerun()
-                else:
-                    st.error("Username does not match. Deletion cancelled.")
-    
-    with tab4:
-        st.subheader("💾 Data Management")
-        
-        st.markdown("### Export Data")
-        st.caption("Download all your data as a backup file")
-        
-        if st.button("📥 Export All Data", use_container_width=True):
-            export_data = {
-                "profile": profile,
-                "username": st.session_state.active_user,
-                "export_date": str(datetime.now()),
-                "version": "1.0"
-            }
-            
-            json_data = json.dumps(export_data, indent=2, ensure_ascii=False)
-            st.download_button(
-                label="⬇️ Download Backup",
-                data=json_data,
-                file_name=f"study_organizer_backup_{date.today()}.json",
-                mime="application/json",
-                use_container_width=True
-            )
-        
-        st.markdown("---")
-        st.markdown("### Import Data")
-        st.caption("Restore your data from a backup file")
-        
-        import_file = st.file_uploader("Upload backup file:", type=["json"], key="import_backup")
-        
-        if import_file:
-            try:
-                import_data = json.load(import_file)
-                st.success("✅ Backup file loaded successfully!")
-                st.json(import_data)
-                
-                if st.button("🔄 Restore Data (WARNING: Overwrites current data)", use_container_width=True, type="primary"):
-                    if st.checkbox("I understand this will overwrite my current data"):
-                        for key, value in import_data.get("profile", {}).items():
-                            profile[key] = value
-                        save_current()
-                        st.success("✅ Data restored successfully! The app will reload.")
-                        st.rerun()
-            except Exception as e:
-                st.error(f"Error reading backup file: {str(e)}")
-        
-        st.markdown("---")
-        st.markdown("### Storage Info")
-        st.caption(f"Profile last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        
-        total_flashcards = len(profile.get("flashcards", []))
-        total_notes = len(profile.get("scribble_notes", []))
-        total_quizzes = profile.get("analytics", {}).get("quiz_taken", 0)
-        
-        col1, col2, col3 = st.columns(3)
-        col1.metric("📚 Flashcards", total_flashcards)
-        col2.metric("📝 Notes", total_notes)
-        col3.metric("❓ Quizzes Taken", total_quizzes)
-
-# Add this anywhere in your main app after login
-with st.sidebar:
-    st.markdown("---")
-    st.subheader("🔗 Parent / Teacher View")
-    st.caption("Share this link for a read-only progress summary:")
-    encoded_key = urllib.parse.quote(st.session_state.active_user, safe="")
-    full_url = f"{st.get_option('server.baseUrlPath') or 'https://smart-study-organizer.streamlit.app'}?view=parent&user={encoded_key}"
-    st.code(full_url, language=None)
-    st.caption("No login required - parents/teachers can see your progress.")
-    st.markdown("---")
-
-# PAGE ROUTING DICTIONARY WITH LABELS
+# Define PAGES dictionary FIRST
 PAGES = {
     "🏠": show_home,
     "💡": show_daily_facts,
     "🗺️": show_mindmap,
     "📝": show_summarizer,
-    "❓": show_mcq_quiz,
+    "🎧": show_audio_overview,
+    "❓": show_mcq_quiz_with_offline,
     "🧠": show_math_solver,
     "🎴": show_flashcards,
     "⏱️": show_pomodoro,
     "✍️": show_scribble_pad,
-    "🎧": show_audio_overview,
     "📊": show_analytics,
+    "👨‍🏫": show_exam_examiner,
+    "📦": show_study_pack_exporter,
+    "📅": show_study_schedule_builder,
     "⚙️": show_settings,
 }
 
-# FLOATING DOCK RADIO SELECTION
-st.markdown("""
-<style>
-[data-testid="stMainBlockContainer"] { padding-right: 240px !important; }
-@media (max-width: 900px) {
-    [data-testid="stMainBlockContainer"] { padding-right: 1.2rem !important; padding-bottom: 96px !important; }
-}
-</style>
-""", unsafe_allow_html=True)
-
-# Build nav options with labels for tooltips
-nav_options = list(PAGES.keys())
-nav_labels = {
-    "🏠": "Home Dashboard",
-    "💡": "Daily Facts",
-    "🗺️": "Mindmap",
-    "📝": "Summarizer",
-    "❓": "MCQ Quiz",
-    "🧠": "Math Solver",
-    "🎴": "Flashcards",
-    "⏱️": "Pomodoro",
-    "✍️": "Scribble Pad",
-    "🎧": "Audio Overview",
-    "📊": "Analytics",
-    "⚙️": "Settings",
+# Navigation groups for display
+NAV_GROUPS = {
+    "🏠": "Home",
+    "📚 Study": {
+        "💡": "Daily Facts",
+        "🗺️": "Mindmap", 
+        "📝": "Summarizer",
+        "🎧": "Audio Overview",
+        "❓": "MCQ Quiz",
+        "🧠": "Math Solver",
+    },
+    "🎯 Tools": {
+        "🎴": "Flashcards",
+        "⏱️": "Pomodoro",
+        "✍️": "Scribble Pad",
+    },
+    "📊 Advanced": {
+        "👨‍🏫": "Exam Examiner",
+        "📦": "Study Pack",
+        "📅": "Schedule",
+        "📊": "Analytics",
+    },
+    "⚙️": "Settings"
 }
 
-# Initialize session state for navigation
-if "nav_choice" not in st.session_state:
-    profile = current_profile()
-    last_feature = profile.get("last_feature_used", "🏠")
-    st.session_state["nav_choice"] = last_feature if last_feature in PAGES else "🏠"
+# Flatten navigation items
+NAV_ITEMS = []
+for key, value in NAV_GROUPS.items():
+    if isinstance(value, dict):
+        for sub_key, sub_label in value.items():
+            NAV_ITEMS.append((sub_key, sub_label))
+    else:
+        NAV_ITEMS.append((key, value))
 
-# Define callback for navigation changes
-def on_nav_change():
-    """Callback when navigation changes via radio"""
-    # The radio value is automatically in st.session_state["nav_radio"]
-    # We just need to update nav_choice
-    if "nav_radio" in st.session_state:
-        new_choice = st.session_state["nav_radio"]
-        if new_choice != st.session_state.get("nav_choice"):
-            st.session_state["nav_choice"] = new_choice
-
-# Use a container with a unique key for the navigation
-with st.container(key="nav_dock"):
-    # Get the current index
-    current_index = nav_options.index(st.session_state["nav_choice"])
+# Create a clean top bar using Streamlit's native components
+def render_nav_bar():
+    """Render navigation as a clean horizontal bar"""
+    current = st.session_state.get("nav_choice", "🏠")
     
-    choice = st.radio(
-        "Navigation",
-        options=nav_options,
-        horizontal=True,
-        label_visibility="collapsed",
-        key="nav_radio",
-        index=current_index,  # Use the index directly
-        on_change=on_nav_change
-    )
+    # Display grouped navigation with separators
+    st.markdown("---")
+    
+    # Group navigation items into rows
+    cols_per_row = 6
+    total_items = len(NAV_ITEMS)
+    
+    for row_start in range(0, total_items, cols_per_row):
+        row_items = NAV_ITEMS[row_start:row_start + cols_per_row]
+        cols = st.columns(len(row_items))
+        
+        for idx, (nav_key, nav_label) in enumerate(row_items):
+            with cols[idx]:
+                is_active = nav_key == current
+                if st.button(
+                    nav_label,
+                    key=f"nav_btn_{nav_key}",
+                    use_container_width=True,
+                    type="primary" if is_active else "secondary"
+                ):
+                    st.session_state.nav_choice = nav_key
+                    st.rerun()
+    
+    st.markdown("---")
 
-# Add tooltips using CSS
-st.markdown("""
-<style>
-div[class*="st-key-nav_dock"] label[data-baseweb="radio"]:nth-child(1) { --tooltip: 'Home Dashboard'; }
-div[class*="st-key-nav_dock"] label[data-baseweb="radio"]:nth-child(2) { --tooltip: 'Daily Facts'; }
-div[class*="st-key-nav_dock"] label[data-baseweb="radio"]:nth-child(3) { --tooltip: 'Mindmap'; }
-div[class*="st-key-nav_dock"] label[data-baseweb="radio"]:nth-child(4) { --tooltip: 'Summarizer'; }
-div[class*="st-key-nav_dock"] label[data-baseweb="radio"]:nth-child(5) { --tooltip: 'MCQ Quiz'; }
-div[class*="st-key-nav_dock"] label[data-baseweb="radio"]:nth-child(6) { --tooltip: 'Math Solver'; }
-div[class*="st-key-nav_dock"] label[data-baseweb="radio"]:nth-child(7) { --tooltip: 'Flashcards'; }
-div[class*="st-key-nav_dock"] label[data-baseweb="radio"]:nth-child(8) { --tooltip: 'Pomodoro'; }
-div[class*="st-key-nav_dock"] label[data-baseweb="radio"]:nth-child(9) { --tooltip: 'Scribble Pad'; }
-div[class*="st-key-nav_dock"] label[data-baseweb="radio"]:nth-child(10) { --tooltip: 'Audio Overview'; }
-div[class*="st-key-nav_dock"] label[data-baseweb="radio"]:nth-child(11) { --tooltip: 'Analytics'; }
-div[class*="st-key-nav_dock"] label[data-baseweb="radio"]:nth-child(12) { --tooltip: 'Settings'; }
+# Render navigation
+render_nav_bar()
 
-div[class*="st-key-nav_dock"] label[data-baseweb="radio"]:hover::after {
-    content: var(--tooltip) !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# EXECUTE SELECTED PAGE FUNCTION
-page_to_show = st.session_state.get("nav_choice", "🏠")
-if page_to_show in PAGES:
-    PAGES[page_to_show]()
+# Execute selected page
+page_key = st.session_state.get("nav_choice", "🏠")
+if page_key in PAGES:
+    PAGES[page_key]()
 else:
-    PAGES["🏠"]()
+    show_home()
