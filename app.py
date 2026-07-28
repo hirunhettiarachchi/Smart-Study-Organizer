@@ -121,8 +121,8 @@ TRANSLATIONS = {
     "Session complete 🎉": "සැසිය අවසන් 🎉",
     "Paused": "විරාමයේ",
     "Ready": "සූදානම්",
-    "Great job! Now take a short break. ☕": "වැඩක් කරා! දැන් කෙටි විවේකයක් ගන්න. ☕",
-    "🔄 Switch Profile": "🔄 පැතිකඩ මාරු කරන්න",
+    "Great job! Now take a short break. ☕": " නියමයි! දැන් කෙටි විවේකයක් ගන්න. ☕",
+    "🔄 Switch Profile": "🔄 ගිණුම මාරු කරන්න",
     "No badges unlocked yet!": "තවම බැජ් කිසිවක් හිමි වී නැත!",
 }
 
