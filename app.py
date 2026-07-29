@@ -121,8 +121,8 @@ TRANSLATIONS = {
     "Session complete 🎉": "සැසිය අවසන් 🎉",
     "Paused": "විරාමයේ",
     "Ready": "සූදානම්",
-    "Great job! Now take a short break. ☕": " නියමයි! දැන් කෙටි විවේකයක් ගන්න. ☕",
-    "🔄 Switch Profile": "🔄 ගිණුම මාරු කරන්න",
+    "Great job! Now take a short break. ☕": "වැඩක් කරා! දැන් කෙටි විවේකයක් ගන්න. ☕",
+    "🔄 Switch Profile": "🔄 පැතිකඩ මාරු කරන්න",
     "No badges unlocked yet!": "තවම බැජ් කිසිවක් හිමි වී නැත!",
 }
 
@@ -2082,16 +2082,55 @@ def apply_theme(theme=None, with_nav=True):
     .navbar-divider {{
         height: 1px; background: var(--border); margin: 0.6rem 0.35rem;
     }}
+    {nav_padding_css}
     @media (max-width: 900px) {{
         div.st-key-right_navbar {{
-            position: static !important;
-            width: 100% !important;
-            max-height: none !important;
-            margin-bottom: 1rem;
+            display: none !important;
         }}
-        [data-testid="stMainBlockContainer"] {{ padding-right: 2rem !important; }}
+        [data-testid="stMainBlockContainer"] {{
+            padding-right: 1rem !important;
+            padding-left: 1rem !important;
+            padding-top: 1rem !important;
+        }}
+        div.st-key-quick_access_grid [data-testid="stHorizontalBlock"] {{
+            display: grid !important;
+            grid-template-columns: 1fr 1fr !important;
+            gap: 0.6rem !important;
+        }}
+        div.st-key-quick_access_grid [data-testid="stHorizontalBlock"] > div {{
+            width: 100% !important;
+            min-width: 0 !important;
+            flex: unset !important;
+        }}
+        div[data-testid="stMetric"] [data-testid="stHorizontalBlock"],
+        [data-testid="stHorizontalBlock"]:has(div[data-testid="stMetric"]) {{
+            display: grid !important;
+            grid-template-columns: 1fr 1fr !important;
+            gap: 0.6rem !important;
+        }}
+        [data-testid="stHorizontalBlock"]:has(div[data-testid="stMetric"]) > div {{
+            width: 100% !important;
+            min-width: 0 !important;
+            flex: unset !important;
+        }}
+        [data-testid="stMain"] h1 {{ font-size: 1.55rem !important; line-height: 1.3 !important; }}
+        [data-testid="stMain"] h2 {{ font-size: 1.25rem !important; }}
+        [data-testid="stMain"] h3 {{ font-size: 1.08rem !important; }}
+        div.st-key-auth_card {{ margin-top: 1.4rem !important; }}
     }}
-    {nav_padding_css}
+    div.st-key-sidebar_navbar {{
+        padding-top: 0.4rem;
+        border-top: 1px solid var(--border);
+        margin-top: 0.6rem;
+    }}
+    div.st-key-sidebar_navbar .stButton > button {{
+        justify-content: flex-start !important;
+        text-align: left !important;
+        border-radius: 12px !important;
+    }}
+    @media (min-width: 901px) {{
+        div.st-key-sidebar_navbar {{ display: none !important; }}
+    }}
 
     /* ===== Auth screen (login / sign up) ===== */
     div.st-key-auth_card {{
@@ -3207,8 +3246,44 @@ def render_nav_bar():
                 if key == "🏠":
                     st.markdown('<div class="navbar-divider"></div>', unsafe_allow_html=True)
 
+def render_sidebar_nav():
+    """Render navigation inside the sidebar — shown only on mobile/tablet widths via CSS,
+    since the floating right-side panel doesn't fit on smaller screens."""
+    current = st.session_state.get("nav_choice", "🏠")
+
+    with st.sidebar:
+        with st.container(key="sidebar_navbar"):
+            st.markdown('<div class="navbar-title">🧭 Navigate</div>', unsafe_allow_html=True)
+
+            for key, value in NAV_GROUPS.items():
+                if isinstance(value, dict):
+                    st.markdown(f'<div class="navbar-group-label">{key}</div>', unsafe_allow_html=True)
+                    for nav_key, nav_label in value.items():
+                        is_active = nav_key == current
+                        if st.button(
+                            f"{nav_key}  {nav_label}",
+                            key=f"sbnav_btn_{nav_key}",
+                            use_container_width=True,
+                            type="primary" if is_active else "secondary"
+                        ):
+                            st.session_state.nav_choice = nav_key
+                            st.rerun()
+                else:
+                    is_active = key == current
+                    if st.button(
+                        f"{key}  {value}",
+                        key=f"sbnav_btn_{key}",
+                        use_container_width=True,
+                        type="primary" if is_active else "secondary"
+                    ):
+                        st.session_state.nav_choice = key
+                        st.rerun()
+                    if key == "🏠":
+                        st.markdown('<div class="navbar-divider"></div>', unsafe_allow_html=True)
+
 # Render navigation
 render_nav_bar()
+render_sidebar_nav()
 
 # Execute selected page
 page_key = st.session_state.get("nav_choice", "🏠")
