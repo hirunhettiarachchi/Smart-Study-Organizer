@@ -1181,7 +1181,16 @@ def show_study_schedule_builder():
     with col2:
         chapters = st.text_area("Chapters to cover (one per line):", height=100, key="schedule_chapters")
         daily_study_hours = st.slider("Daily Study Hours Available:", 0.5, 4.0, 1.5, 0.5, key="study_hours")
-    
+
+    schedule_file = st.file_uploader("Upload syllabus/notes PDF (optional):", type=["pdf", "txt"], key="schedule_upload")
+    schedule_pdf_text = ""
+    if schedule_file is not None:
+        if schedule_file.name.lower().endswith(".pdf"):
+            schedule_pdf_text = extract_text_from_pdf(schedule_file)
+            st.success("PDF loaded successfully!")
+        else:
+            schedule_pdf_text = schedule_file.read().decode("utf-8", errors="ignore")
+
     if st.button("📅 Generate Study Schedule", use_container_width=True, type="primary"):
         if exam_subject and chapters and exam_date > date.today():
             with st.spinner("AI is creating your personalized study schedule..."):
@@ -1190,7 +1199,8 @@ def show_study_schedule_builder():
                     chapters.split('\n'), 
                     exam_date, 
                     daily_study_hours,
-                    profile
+                    profile,
+                    schedule_pdf_text
                 )
                 
                 if schedule_data:
@@ -1258,7 +1268,7 @@ def show_study_schedule_builder():
                     mime="text/plain"
                 )
 
-def generate_study_schedule(subject, chapters, exam_date, daily_hours, profile):
+def generate_study_schedule(subject, chapters, exam_date, daily_hours, profile, reference_content=""):
     try:
         offline_manager = OfflineContentManager()
         if not offline_manager.is_online():
@@ -1276,6 +1286,7 @@ def generate_study_schedule(subject, chapters, exam_date, daily_hours, profile):
         Days Until Exam: {days_until}
         Daily Study Hours: {daily_hours}
         Chapters to Cover: {chapters}
+        {f"Reference material uploaded by the student (base the topic breakdown on this where relevant): {reference_content[:3000]}" if reference_content else ""}
         
         Create an adaptive schedule with:
         1. Spaced repetition reviews
@@ -2914,12 +2925,21 @@ def show_flashcards():
         gen_topic = st.text_input("Topic:", key="flash_gen_topic")
         gen_count = st.slider("Number of flashcards:", min_value=3, max_value=20, value=8, key="flash_gen_count")
 
+        gen_file = st.file_uploader("Upload notes/PDF to base flashcards on (optional):", type=["pdf", "txt"], key="flash_gen_upload")
+        gen_pdf_text = ""
+        if gen_file is not None:
+            if gen_file.name.lower().endswith(".pdf"):
+                gen_pdf_text = extract_text_from_pdf(gen_file)
+                st.success("PDF loaded successfully!")
+            else:
+                gen_pdf_text = gen_file.read().decode("utf-8", errors="ignore")
+
         if st.button("✨ Generate Flashcards with AI"):
-            if gen_topic:
+            if gen_topic or gen_pdf_text:
                 with st.spinner(f"Creating {gen_count} flashcards..."):
                     offline_manager = OfflineContentManager()
                     if offline_manager.is_online():
-                        prompt = build_flashcards_prompt(gen_subject, gen_topic, gen_count)
+                        prompt = build_flashcards_prompt(gen_subject, gen_topic, gen_count, gen_pdf_text)
                         raw_json = get_ai_response(prompt)
                         try:
                             parsed = parse_quiz_json(raw_json)
@@ -2936,7 +2956,7 @@ def show_flashcards():
                         save_current()
                         st.success(f"Added {min(gen_count, len(offline_cards))} offline flashcards to your deck!")
             else:
-                st.warning("Please give a topic")
+                st.warning("Please give a topic or upload a PDF")
 
     with tab_manage:
         if not profile["flashcards"]:
@@ -2965,8 +2985,10 @@ def show_flashcards():
                                 st.session_state.pop(confirm_key, None)
                                 st.rerun()
 
-def build_flashcards_prompt(subject, topic, count):
-    return f"{_who_line()} {_syllabus_notice('flashcards')} Subject: {subject}. Create ONLY exactly {count} flashcards for the topic '{topic}'. Return ONLY a raw JSON array of exactly {count} objects, each with keys 'front' and 'back'."
+def build_flashcards_prompt(subject, topic, count, reference_content=""):
+    topic_line = f"the topic '{topic}'" if topic else "the uploaded reference material"
+    ref_block = f" Base the flashcards on this reference material: {reference_content[:3000]}" if reference_content else ""
+    return f"{_who_line()} {_syllabus_notice('flashcards')} Subject: {subject}. Create ONLY exactly {count} flashcards for {topic_line}.{ref_block} Return ONLY a raw JSON array of exactly {count} objects, each with keys 'front' and 'back'."
 
 # ==================== POMODORO TIMER ====================
 
