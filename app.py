@@ -2165,18 +2165,34 @@ def apply_theme(theme=None, with_nav=True):
         margin: 0.9rem 0; position: relative;
     }}
     div.st-key-auth_card div[data-testid="stTabs"] [data-baseweb="tab-list"] {{
+        display: flex !important;
+        width: 100% !important;
         gap: 0.35rem; border-bottom: none;
         background: var(--track-bg); padding: 0.3rem;
         border-radius: 14px; margin-bottom: 1.3rem;
     }}
     div.st-key-auth_card div[data-testid="stTabs"] [data-baseweb="tab"] {{
-        border-radius: 10px !important; padding: 0.5rem 1rem !important;
-        color: var(--muted) !important; font-weight: 600 !important;
-        flex: 1; justify-content: center;
+        flex: 1 1 0 !important;
+        width: auto !important;
+        min-width: 0 !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 0.35rem;
+        border-radius: 10px !important;
+        padding: 0.6rem 0.5rem !important;
+        color: var(--muted) !important;
+        font-weight: 600 !important;
+        font-size: 0.92rem !important;
     }}
     div.st-key-auth_card div[data-testid="stTabs"] [aria-selected="true"] {{
         background: linear-gradient(135deg, var(--accent-1), var(--accent-2)) !important;
         color: #FFFFFF !important;
+    }}
+    div.st-key-auth_card div[data-testid="stTabs"] [data-baseweb="tab"] p {{
+        color: inherit !important;
+        font-weight: inherit !important;
+        margin: 0 !important;
     }}
     div.st-key-auth_card div[data-testid="stTabs"] [data-baseweb="tab-highlight"],
     div.st-key-auth_card div[data-testid="stTabs"] [data-baseweb="tab-border"] {{
