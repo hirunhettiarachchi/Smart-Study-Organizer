@@ -18,8 +18,7 @@ import io
 import base64
 from datetime import date, datetime, timedelta, timezone
 import pandas as pd
-from google import genai
-from google.genai import types as genai_types
+from openai import OpenAI
 from PIL import Image
 import PyPDF2
 import random
@@ -511,38 +510,67 @@ def save_current():
     if key and key in users:
         save_profile(key, users[key])
 
-# AI SETUP
-def get_api_key():
+# ==================== XAI (GROK) SETUP ====================
+
+def get_xai_api_key():
+    """Get xAI API key from environment or secrets"""
     try:
-        if hasattr(st, "secrets") and "GEMINI_API_KEY" in st.secrets:
-            return st.secrets["GEMINI_API_KEY"]
+        if hasattr(st, "secrets") and "XAI_API_KEY" in st.secrets:
+            return st.secrets["XAI_API_KEY"]
     except Exception:
         pass
-    key = os.environ.get("GEMINI_API_KEY")
+    key = os.environ.get("XAI_API_KEY")
     if key:
         return key
     return None
 
 @st.cache_resource(show_spinner=False)
-def get_client():
-    api_key = get_api_key()
+def get_xai_client():
+    """Initialize xAI client"""
+    api_key = get_xai_api_key()
     if not api_key:
         return None
-    return genai.Client(api_key=api_key)
+    return OpenAI(
+        api_key=api_key,
+        base_url="https://api.x.ai/v1",
+    )
 
 def get_ai_response(prompt, image=None):
-    client = get_client()
+    """Get response from xAI (Grok)"""
+    client = get_xai_client()
     if client is None:
-        return "⚠️ **No Gemini API key found.** Please add your API key to use AI features. The app will use offline mode for basic functionality."
+        return "⚠️ **No xAI API key found.** Please add your API key to use AI features. The app will use offline mode for basic functionality."
+    
     try:
-        contents_list = [prompt]
+        messages = [
+            {"role": "system", "content": "You are a helpful study assistant for Sri Lankan students. Provide accurate, educational responses."},
+            {"role": "user", "content": prompt}
+        ]
+        
+        # Handle image input - xAI supports images via vision
         if image is not None:
-            contents_list.append(image)
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=contents_list,
+            # If image is a PIL Image, convert it to base64
+            if hasattr(image, 'save'):
+                import io
+                import base64
+                buffered = io.BytesIO()
+                image.save(buffered, format="PNG")
+                img_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+                messages.append({
+                    "role": "user", 
+                    "content": [
+                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_base64}"}}
+                    ]
+                })
+        
+        response = client.chat.completions.create(
+            model="grok-2-vision-1212",
+            messages=messages,
+            temperature=0.7,
+            max_tokens=4096,
         )
-        return response.text
+        return response.choices[0].message.content
+        
     except Exception as e:
         err_text = str(e)
         if "401" in err_text or "UNAUTHENTICATED" in err_text:
@@ -550,68 +578,23 @@ def get_ai_response(prompt, image=None):
         return f"ERROR: Please check your internet connection ({err_text})"
 
 def generate_audio_overview_wav(script_text):
-    client = get_client()
-    if client is None:
-        return None, "No Gemini API key found"
+    """Generate audio using xAI TTS - fallback to simple text-to-speech"""
+    # xAI doesn't have built-in TTS, so we'll use a fallback with gTTS or just return script
     try:
-        response = client.models.generate_content(
-            model="gemini-3.1-flash-tts-preview",
-            contents=script_text,
-            config=genai_types.GenerateContentConfig(
-                response_modalities=["AUDIO"],
-                speech_config=genai_types.SpeechConfig(
-                    multi_speaker_voice_config=genai_types.MultiSpeakerVoiceConfig(
-                        speaker_voice_configs=[
-                            genai_types.SpeakerVoiceConfig(
-                                speaker="Host1",
-                                voice_config=genai_types.VoiceConfig(
-                                    prebuilt_voice_config=genai_types.PrebuiltVoiceConfig(voice_name="Kore")
-                                ),
-                            ),
-                            genai_types.SpeakerVoiceConfig(
-                                speaker="Host2",
-                                voice_config=genai_types.VoiceConfig(
-                                    prebuilt_voice_config=genai_types.PrebuiltVoiceConfig(voice_name="Puck")
-                                ),
-                            ),
-                        ]
-                    )
-                ),
-            ),
-        )
-        pcm_data = response.candidates[0].content.parts[0].inline_data.data
-        buffer = io.BytesIO()
-        with wave.open(buffer, "wb") as wf:
-            wf.setnchannels(1)
-            wf.setsampwidth(2)
-            wf.setframerate(24000)
-            wf.writeframes(pcm_data)
-        return buffer.getvalue(), None
+        from gtts import gTTS
+        import io
+        
+        # Use gTTS as fallback
+        tts = gTTS(text=script_text[:5000], lang='en', slow=False)
+        audio_buffer = io.BytesIO()
+        tts.write_to_fp(audio_buffer)
+        audio_buffer.seek(0)
+        return audio_buffer.getvalue(), None
+    except ImportError:
+        # If gTTS not installed, return the script text
+        return None, "gTTS not installed. Please install: pip install gTTS"
     except Exception as e:
         return None, str(e)
-
-def parse_quiz_json(raw_text):
-    cleaned = raw_text.strip()
-    cleaned = re.sub(r"^```json", "", cleaned)
-    cleaned = re.sub(r"^```", "", cleaned)
-    cleaned = re.sub(r"```$", "", cleaned)
-    cleaned = cleaned.strip()
-    try:
-        return json.loads(cleaned)
-    except Exception:
-        pass
-    try:
-        return ast.literal_eval(cleaned)
-    except Exception:
-        pass
-    match = re.search(r"\[.*\]", cleaned, re.DOTALL)
-    if match:
-        block = match.group(0)
-        try:
-            return json.loads(block)
-        except Exception:
-            return ast.literal_eval(block)
-    raise ValueError("Could not parse quiz JSON")
 
 # ==================== OFFLINE CONTENT MANAGER ====================
 
@@ -622,7 +605,7 @@ class OfflineContentManager:
         self.offline_facts = self.load_offline_facts()
     
     def is_online(self):
-        return get_client() is not None
+        return get_xai_client() is not None
     
     def load_offline_questions(self):
         return {
@@ -880,7 +863,9 @@ def show_exam_examiner():
 def build_exam_prompt(subject, topic, difficulty, num_questions, exam_type, content):
     user_info = current_profile()
     return f"""
-    {_who_line()} {_syllabus_notice('open-ended exam questions')}
+    CRITICAL RULE: This request is for open-ended exam questions ONLY — produce nothing else. This content MUST strictly align with the Sri Lankan local school syllabus for the user's grade.
+
+    The user is {user_info.get('user_age', 13)} years old in {user_info.get('user_grade', 'Grade 8')} in Sri Lanka.
 
     You are an AI examiner. Create {num_questions} open-ended exam questions for this student studying {subject}.
     
@@ -907,8 +892,11 @@ def build_exam_prompt(subject, topic, difficulty, num_questions, exam_type, cont
     """
 
 def get_exam_feedback(question, student_answer, max_marks):
+    user_info = current_profile()
     prompt = f"""
-    {_who_line()} {_syllabus_notice('exam answer feedback')}
+    CRITICAL RULE: This request is for exam answer feedback ONLY — produce nothing else. This content MUST strictly align with the Sri Lankan local school syllabus for the user's grade.
+
+    The user is {user_info.get('user_age', 13)} years old in {user_info.get('user_grade', 'Grade 8')} in Sri Lanka.
 
     You are an AI examiner grading an exam answer.
     
@@ -1278,9 +1266,11 @@ def generate_study_schedule(subject, chapters, exam_date, daily_hours, profile, 
         user_info = current_profile()
         
         prompt = f"""
-        {_who_line()} {_syllabus_notice('a study schedule')}
+        CRITICAL RULE: This request is for a study schedule ONLY — produce nothing else. Pacing, topic breakdown, and difficulty MUST strictly match the Sri Lankan local school syllabus for their grade.
 
-        Create a study schedule for this student studying {subject}. Pacing, topic breakdown, and difficulty MUST strictly match the Sri Lankan local school syllabus for their grade.
+        The user is {user_info.get('user_age', 13)} years old in {user_info.get('user_grade', 'Grade 8')} in Sri Lanka.
+
+        Create a study schedule for this student studying {subject}.
         
         Exam Date: {exam_date}
         Days Until Exam: {days_until}
@@ -1686,7 +1676,8 @@ def show_pomodoro_with_soundscapes():
         show_ambient_sound_player()
 
 def build_goal_tasks_prompt(goal):
-    return f"{_who_line()} {_syllabus_notice('a study goal task breakdown')} Break down this study goal into 4 short actionable tasks appropriate for this student's grade level, using the Sri Lankan school syllabus for context. Provide only the tasks, without numbers, one per line:\n{goal}"
+    user_info = current_profile()
+    return f"CRITICAL RULE: This request is for a study goal task breakdown ONLY — produce nothing else. The user is {user_info.get('user_age', 13)} years old in {user_info.get('user_grade', 'Grade 8')} in Sri Lanka. Break down this study goal into 4 short actionable tasks appropriate for this student's grade level, using the Sri Lankan school syllabus for context. Provide only the tasks, without numbers, one per line:\n{goal}"
 
 # ==================== THEME SYSTEM ====================
 
@@ -2710,7 +2701,8 @@ def show_daily_facts():
     st.info(st.session_state.daily_fact)
 
 def build_daily_fact_prompt():
-    return f"{_who_line()} Tell ONLY one amazing, mind-blowing, yet easy-to-understand science or computer technology fact. Explain it in 3 clear bullet points."
+    user_info = current_profile()
+    return f"CRITICAL RULE: This request is for a daily fact ONLY — produce nothing else. The user is {user_info.get('user_age', 13)} years old in {user_info.get('user_grade', 'Grade 8')} in Sri Lanka. Tell ONLY one amazing, mind-blowing, yet easy-to-understand science or computer technology fact. Explain it in 3 clear bullet points."
 
 def show_mindmap():
     st.header(t("🗺️ AI Mindmap Generator"))
@@ -2747,7 +2739,8 @@ def show_mindmap():
             st.warning("Please provide a topic or upload a file to generate a mindmap.")
 
 def build_mindmap_prompt(content):
-    return f"{_who_line()} {_syllabus_notice('a mindmap')} Based on the following content, generate ONLY a clear, logical, structured text-based mindmap. Format it using clean nested markdown bullet points. Content: {content[:2000]}"
+    user_info = current_profile()
+    return f"CRITICAL RULE: This request is for a mindmap ONLY — produce nothing else. The user is {user_info.get('user_age', 13)} years old in {user_info.get('user_grade', 'Grade 8')} in Sri Lanka. Based on the following content, generate ONLY a clear, logical, structured text-based mindmap. Format it using clean nested markdown bullet points. Content: {content[:2000]}"
 
 def show_summarizer():
     st.header(t("📝 AI Note Summarizer"))
@@ -2786,7 +2779,8 @@ def show_summarizer():
             st.warning("Please provide a note or upload a file.")
 
 def build_summarizer_prompt(notes_text):
-    return f"{_who_line()} {_syllabus_notice('a note summary')} Summarize these notes clearly in bullet points ONLY. Notes: {notes_text[:2000]}."
+    user_info = current_profile()
+    return f"CRITICAL RULE: This request is for a note summary ONLY — produce nothing else. The user is {user_info.get('user_age', 13)} years old in {user_info.get('user_grade', 'Grade 8')} in Sri Lanka. Summarize these notes clearly in bullet points ONLY. Notes: {notes_text[:2000]}."
 
 def show_audio_overview():
     st.header(t("🎧 Audio Overview"))
@@ -2840,7 +2834,8 @@ def show_audio_overview():
             st.warning("Please provide a note or upload a file.")
 
 def build_audio_overview_script_prompt(content):
-    return f"{_who_line()} {_syllabus_notice('a two-host podcast-style audio overview script')} Write ONLY a short, natural, conversational script between two hosts discussing and explaining the notes below. Format EVERY line as exactly 'Host1: <line>' or 'Host2: <line>'. Notes: {content[:2000]}"
+    user_info = current_profile()
+    return f"CRITICAL RULE: This request is for a two-host podcast-style audio overview script ONLY — produce nothing else. The user is {user_info.get('user_age', 13)} years old in {user_info.get('user_grade', 'Grade 8')} in Sri Lanka. Write ONLY a short, natural, conversational script between two hosts discussing and explaining the notes below. Format EVERY line as exactly 'Host1: <line>' or 'Host2: <line>'. Notes: {content[:2000]}"
 
 def show_math_solver():
     st.header(t("🧠 AI Math Problem Solver"))
@@ -2870,7 +2865,8 @@ def show_math_solver():
             st.warning("Please provide a question or image")
 
 def build_math_prompt(math_query):
-    return f"{_who_line()} {_syllabus_notice('a step-by-step math solution')} Solve ONLY this one math problem step-by-step: {math_query}. Act like a friendly tutor teaching a beginner."
+    user_info = current_profile()
+    return f"CRITICAL RULE: This request is for a step-by-step math solution ONLY — produce nothing else. The user is {user_info.get('user_age', 13)} years old in {user_info.get('user_grade', 'Grade 8')} in Sri Lanka. Solve ONLY this one math problem step-by-step: {math_query}. Act like a friendly tutor teaching a beginner."
 
 def show_flashcards():
     st.header(t("🗂️ Flashcards & Spaced Repetition"))
@@ -2986,9 +2982,10 @@ def show_flashcards():
                                 st.rerun()
 
 def build_flashcards_prompt(subject, topic, count, reference_content=""):
+    user_info = current_profile()
     topic_line = f"the topic '{topic}'" if topic else "the uploaded reference material"
     ref_block = f" Base the flashcards on this reference material: {reference_content[:3000]}" if reference_content else ""
-    return f"{_who_line()} {_syllabus_notice('flashcards')} Subject: {subject}. Create ONLY exactly {count} flashcards for {topic_line}.{ref_block} Return ONLY a raw JSON array of exactly {count} objects, each with keys 'front' and 'back'."
+    return f"CRITICAL RULE: This request is for flashcards ONLY — produce nothing else. The user is {user_info.get('user_age', 13)} years old in {user_info.get('user_grade', 'Grade 8')} in Sri Lanka. Subject: {subject}. Create ONLY exactly {count} flashcards for {topic_line}.{ref_block} Return ONLY a raw JSON array of exactly {count} objects, each with keys 'front' and 'back'."
 
 # ==================== POMODORO TIMER ====================
 
