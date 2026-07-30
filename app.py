@@ -522,6 +522,12 @@ def get_xai_api_key():
     key = os.environ.get("XAI_API_KEY")
     if key:
         return key
+    key = os.environ.get("XAI_KEY")
+    if key:
+        return key
+    key = os.environ.get("GROK_API_KEY")
+    if key:
+        return key
     return None
 
 @st.cache_resource(show_spinner=False)
@@ -530,10 +536,15 @@ def get_xai_client():
     api_key = get_xai_api_key()
     if not api_key:
         return None
-    return OpenAI(
-        api_key=api_key,
-        base_url="https://api.x.ai/v1",
-    )
+    
+    try:
+        client = OpenAI(
+            api_key=api_key,
+            base_url="https://api.x.ai/v1",
+        )
+        return client
+    except Exception as e:
+        return None
 
 def get_ai_response(prompt, image=None):
     """Get response from xAI (Grok)"""
@@ -547,19 +558,18 @@ def get_ai_response(prompt, image=None):
             {"role": "user", "content": prompt}
         ]
         
-        # Handle image input - xAI supports images via vision
+        # Handle image input - xAI supports vision via OpenAI format
         if image is not None:
-            # If image is a PIL Image, convert it to base64
             if hasattr(image, 'save'):
-                import io
-                import base64
                 buffered = io.BytesIO()
-                image.save(buffered, format="PNG")
+                if image.mode in ('RGBA', 'LA', 'P'):
+                    image = image.convert('RGB')
+                image.save(buffered, format="JPEG")
                 img_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
                 messages.append({
                     "role": "user", 
                     "content": [
-                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_base64}"}}
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_base64}"}}
                     ]
                 })
         
@@ -575,23 +585,25 @@ def get_ai_response(prompt, image=None):
         err_text = str(e)
         if "401" in err_text or "UNAUTHENTICATED" in err_text:
             return "⚠️ **API key authentication failed.** Please check your API key and try again. Using offline mode."
-        return f"ERROR: Please check your internet connection ({err_text})"
+        elif "429" in err_text:
+            return "⚠️ **Rate limit exceeded.** Please wait a moment and try again."
+        else:
+            return f"ERROR: {err_text}"
 
 def generate_audio_overview_wav(script_text):
-    """Generate audio using xAI TTS - fallback to simple text-to-speech"""
-    # xAI doesn't have built-in TTS, so we'll use a fallback with gTTS or just return script
+    """Generate audio using gTTS as fallback"""
     try:
         from gtts import gTTS
-        import io
         
-        # Use gTTS as fallback
-        tts = gTTS(text=script_text[:5000], lang='en', slow=False)
+        if len(script_text) > 5000:
+            script_text = script_text[:5000]
+        
+        tts = gTTS(text=script_text, lang='en', slow=False)
         audio_buffer = io.BytesIO()
         tts.write_to_fp(audio_buffer)
         audio_buffer.seek(0)
         return audio_buffer.getvalue(), None
     except ImportError:
-        # If gTTS not installed, return the script text
         return None, "gTTS not installed. Please install: pip install gTTS"
     except Exception as e:
         return None, str(e)
@@ -603,9 +615,29 @@ class OfflineContentManager:
         self.offline_questions = self.load_offline_questions()
         self.offline_flashcards = self.load_offline_flashcards()
         self.offline_facts = self.load_offline_facts()
+        self._online_status = None
     
     def is_online(self):
-        return get_xai_client() is not None
+        """Check if we have a working xAI connection"""
+        if self._online_status is not None:
+            return self._online_status
+        
+        client = get_xai_client()
+        if client is None:
+            self._online_status = False
+            return False
+        
+        try:
+            test_response = client.chat.completions.create(
+                model="grok-2-vision-1212",
+                messages=[{"role": "user", "content": "Hi"}],
+                max_tokens=5,
+            )
+            self._online_status = True
+            return True
+        except Exception:
+            self._online_status = False
+            return False
     
     def load_offline_questions(self):
         return {
