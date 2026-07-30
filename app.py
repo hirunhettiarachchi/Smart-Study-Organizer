@@ -24,13 +24,7 @@ import PyPDF2
 import random
 import numpy as np
 
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass
-
-# PAGE CONFIG
+# PAGE CONFIG - MUST BE FIRST
 st.set_page_config(page_title="Smart Study Organizer Pro", page_icon="🎓", layout="wide")
 
 DB_FILE = "study_organizer.db"
@@ -510,47 +504,40 @@ def save_current():
     if key and key in users:
         save_profile(key, users[key])
 
-# ==================== XAI (GROK) SETUP ====================
+# ==================== GROQ AI SETUP ====================
 
-def get_xai_api_key():
-    """Get xAI API key from environment or secrets"""
+def get_groq_api_key():
+    """Get Groq API key from environment or secrets"""
     try:
-        if hasattr(st, "secrets") and "XAI_API_KEY" in st.secrets:
-            return st.secrets["XAI_API_KEY"]
+        if hasattr(st, "secrets") and "GROQ_API_KEY" in st.secrets:
+            return st.secrets["GROQ_API_KEY"]
     except Exception:
         pass
-    key = os.environ.get("XAI_API_KEY")
-    if key:
-        return key
-    key = os.environ.get("XAI_KEY")
-    if key:
-        return key
-    key = os.environ.get("GROK_API_KEY")
+    key = os.environ.get("GROQ_API_KEY")
     if key:
         return key
     return None
 
 @st.cache_resource(show_spinner=False)
-def get_xai_client():
-    """Initialize xAI client"""
-    api_key = get_xai_api_key()
+def get_groq_client():
+    """Initialize Groq client (OpenAI-compatible)"""
+    api_key = get_groq_api_key()
     if not api_key:
         return None
-    
     try:
         client = OpenAI(
             api_key=api_key,
-            base_url="https://api.x.ai/v1",
+            base_url="https://api.groq.com/openai/v1",
         )
         return client
     except Exception as e:
         return None
 
 def get_ai_response(prompt, image=None):
-    """Get response from xAI (Grok)"""
-    client = get_xai_client()
+    """Get response from Groq (text-only)"""
+    client = get_groq_client()
     if client is None:
-        return "⚠️ **No xAI API key found.** Please add your API key to use AI features. The app will use offline mode for basic functionality."
+        return "⚠️ **No Groq API key found.** Using offline mode."
     
     try:
         messages = [
@@ -558,23 +545,12 @@ def get_ai_response(prompt, image=None):
             {"role": "user", "content": prompt}
         ]
         
-        # Handle image input - xAI supports vision via OpenAI format
-        if image is not None:
-            if hasattr(image, 'save'):
-                buffered = io.BytesIO()
-                if image.mode in ('RGBA', 'LA', 'P'):
-                    image = image.convert('RGB')
-                image.save(buffered, format="JPEG")
-                img_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
-                messages.append({
-                    "role": "user", 
-                    "content": [
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_base64}"}}
-                    ]
-                })
+        # Groq free models are text-only – ignore images (we could convert to text here, but not needed)
+        # If image is provided, we could optionally extract text with OCR, but we'll skip for simplicity.
         
+        # Choose a fast, free model
         response = client.chat.completions.create(
-            model="grok-2-vision-1212",
+            model="llama3-70b-8192",  # or "mixtral-8x7b-32768", "gemma2-9b-it"
             messages=messages,
             temperature=0.7,
             max_tokens=4096,
@@ -584,14 +560,14 @@ def get_ai_response(prompt, image=None):
     except Exception as e:
         err_text = str(e)
         if "401" in err_text or "UNAUTHENTICATED" in err_text:
-            return "⚠️ **API key authentication failed.** Please check your API key and try again. Using offline mode."
+            return "⚠️ **API key authentication failed.** Please check your API key and try again."
         elif "429" in err_text:
             return "⚠️ **Rate limit exceeded.** Please wait a moment and try again."
         else:
             return f"ERROR: {err_text}"
 
 def generate_audio_overview_wav(script_text):
-    """Generate audio using gTTS as fallback"""
+    """Generate audio using gTTS (free, local)"""
     try:
         from gtts import gTTS
         
@@ -618,18 +594,18 @@ class OfflineContentManager:
         self._online_status = None
     
     def is_online(self):
-        """Check if we have a working xAI connection"""
+        """Check if we have a working Groq connection"""
         if self._online_status is not None:
             return self._online_status
         
-        client = get_xai_client()
+        client = get_groq_client()
         if client is None:
             self._online_status = False
             return False
         
         try:
             test_response = client.chat.completions.create(
-                model="grok-2-vision-1212",
+                model="llama3-70b-8192",
                 messages=[{"role": "user", "content": "Hi"}],
                 max_tokens=5,
             )
@@ -711,7 +687,7 @@ class OfflineContentManager:
             index = random.randint(0, len(self.offline_facts) - 1)
         return self.offline_facts[index % len(self.offline_facts)]
 
-# ==================== EXAM EXAMINER FEATURE ====================
+# ==================== EXAM EXAMINER ====================
 
 def show_exam_examiner():
     st.header("🤖 Interactive AI Exam Examiner Mode")
@@ -1542,7 +1518,7 @@ def show_mcq_quiz_with_offline():
     if not is_online:
         st.warning("📶 Offline Mode Active - Using pre-loaded questions")
     else:
-        st.info("🌐 Online Mode - AI generating questions")
+        st.info("🌐 Online Mode - Groq generating questions")
     
     subject = st.text_input("Subject — e.g. Science, History, Maths:", value="General Knowledge")
     q_file = st.file_uploader("Upload Notes to test yourself (PDF, PNG, JPG):", type=["pdf", "png", "jpg", "jpeg"])
@@ -1569,7 +1545,8 @@ def show_mcq_quiz_with_offline():
                         subject, difficulty, num_questions,
                         combined_context if combined_context.strip() else "see attached image"
                     )
-                    raw_json = get_ai_response(prompt, image=q_img)
+                    # Groq ignores image, but we keep parameter for compatibility
+                    raw_json = get_ai_response(prompt)
                     try:
                         st.session_state.quiz_list = parse_quiz_json(raw_json)
                         st.session_state.quiz_subject = subject
@@ -2758,7 +2735,7 @@ def show_mindmap():
 
             prompt = build_mindmap_prompt(extracted_content)
 
-            mm_output = get_ai_response(prompt, image=img)
+            mm_output = get_ai_response(prompt, image=img)  # image ignored by Groq
             ph.empty()
             st.success("Your Mindmap is Ready:")
             st.markdown(mm_output)
@@ -3224,9 +3201,8 @@ def show_analytics():
     else:
         empty_state("📝", "No exams taken yet — try the Exam Examiner feature!")
 
-# ==================== PAGE ROUTING - COMPACT DOCK ====================
+# ==================== PAGE ROUTING ====================
 
-# Define PAGES dictionary FIRST
 PAGES = {
     "🏠": show_home,
     "💡": show_daily_facts,
@@ -3245,7 +3221,6 @@ PAGES = {
     "⚙️": show_settings,
 }
 
-# Navigation groups for display
 NAV_GROUPS = {
     "🏠": "Home",
     "📚 Study": {
@@ -3270,23 +3245,10 @@ NAV_GROUPS = {
     "⚙️": "Settings"
 }
 
-# Flatten navigation items
-NAV_ITEMS = []
-for key, value in NAV_GROUPS.items():
-    if isinstance(value, dict):
-        for sub_key, sub_label in value.items():
-            NAV_ITEMS.append((sub_key, sub_label))
-    else:
-        NAV_ITEMS.append((key, value))
-
-# Create a clean vertical nav bar docked to the right side of the screen
 def render_nav_bar():
-    """Render navigation as a floating vertical panel on the right"""
     current = st.session_state.get("nav_choice", "🏠")
-
     with st.container(key="right_navbar"):
         st.markdown('<div class="navbar-title">🧭 Navigate</div>', unsafe_allow_html=True)
-
         for key, value in NAV_GROUPS.items():
             if isinstance(value, dict):
                 st.markdown(f'<div class="navbar-group-label">{key}</div>', unsafe_allow_html=True)
@@ -3314,14 +3276,10 @@ def render_nav_bar():
                     st.markdown('<div class="navbar-divider"></div>', unsafe_allow_html=True)
 
 def render_sidebar_nav():
-    """Render navigation inside the sidebar — shown only on mobile/tablet widths via CSS,
-    since the floating right-side panel doesn't fit on smaller screens."""
     current = st.session_state.get("nav_choice", "🏠")
-
     with st.sidebar:
         with st.container(key="sidebar_navbar"):
             st.markdown('<div class="navbar-title">🧭 Navigate</div>', unsafe_allow_html=True)
-
             for key, value in NAV_GROUPS.items():
                 if isinstance(value, dict):
                     st.markdown(f'<div class="navbar-group-label">{key}</div>', unsafe_allow_html=True)
