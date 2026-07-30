@@ -1,6 +1,7 @@
 streamlit
 pandas
-google-genai
+openai
+gtts
 Pillow
 PyPDF2
 python-dotenv
