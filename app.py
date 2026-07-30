@@ -18,13 +18,19 @@ import io
 import base64
 from datetime import date, datetime, timedelta, timezone
 import pandas as pd
-from openai import OpenAI
+from groq import Groq
 from PIL import Image
 import PyPDF2
 import random
 import numpy as np
 
-# PAGE CONFIG - MUST BE FIRST
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+# PAGE CONFIG
 st.set_page_config(page_title="Smart Study Organizer Pro", page_icon="🎓", layout="wide")
 
 DB_FILE = "study_organizer.db"
@@ -504,10 +510,14 @@ def save_current():
     if key and key in users:
         save_profile(key, users[key])
 
-# ==================== GROQ AI SETUP ====================
+# AI SETUP (Groq — ultra-low latency inference)
+GROQ_COMPLEX_MODEL = "llama-3.3-70b-versatile"   # exam generation, step-by-step tutoring, study schedules
+GROQ_INSTANT_MODEL = "llama-3.1-8b-instant"      # flashcards, quick Q&A, floating chat
+GROQ_VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"  # only used when an image is attached, since the two models above are text-only
+GROQ_TTS_MODEL = "playai-tts"
+HOST_VOICES = {"Host1": "Fritz-PlayAI", "Host2": "Arista-PlayAI"}
 
-def get_groq_api_key():
-    """Get Groq API key from environment or secrets"""
+def get_api_key():
     try:
         if hasattr(st, "secrets") and "GROQ_API_KEY" in st.secrets:
             return st.secrets["GROQ_API_KEY"]
@@ -519,70 +529,125 @@ def get_groq_api_key():
     return None
 
 @st.cache_resource(show_spinner=False)
-def get_groq_client():
-    """Initialize Groq client (OpenAI-compatible)"""
-    api_key = get_groq_api_key()
+def get_client():
+    api_key = get_api_key()
     if not api_key:
         return None
-    try:
-        client = OpenAI(
-            api_key=api_key,
-            base_url="https://api.groq.com/openai/v1",
-        )
-        return client
-    except Exception as e:
-        return None
+    return Groq(api_key=api_key)
 
-def get_ai_response(prompt, image=None):
-    """Get response from Groq (text-only)"""
-    client = get_groq_client()
+def _image_to_data_url(image):
+    buffer = io.BytesIO()
+    image.convert("RGB").save(buffer, format="JPEG")
+    b64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
+    return f"data:image/jpeg;base64,{b64}"
+
+def get_ai_response(prompt, image=None, task="complex"):
+    """task: 'complex' -> llama-3.3-70b-versatile, 'instant' -> llama-3.1-8b-instant.
+    If an image is attached, the vision model is used automatically regardless of task."""
+    client = get_client()
     if client is None:
-        return "⚠️ **No Groq API key found.** Using offline mode."
-    
+        return "⚠️ **No Groq API key found.** Please add your API key to use AI features. The app will use offline mode for basic functionality."
     try:
-        messages = [
-            {"role": "system", "content": "You are a helpful study assistant for Sri Lankan students. Provide accurate, educational responses."},
-            {"role": "user", "content": prompt}
-        ]
-        
-        # Groq free models are text-only – ignore images (we could convert to text here, but not needed)
-        # If image is provided, we could optionally extract text with OCR, but we'll skip for simplicity.
-        
-        # Choose a fast, free model
+        if image is not None:
+            model = GROQ_VISION_MODEL
+            messages = [{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": _image_to_data_url(image)}},
+                ],
+            }]
+        else:
+            model = GROQ_INSTANT_MODEL if task == "instant" else GROQ_COMPLEX_MODEL
+            messages = [{"role": "user", "content": prompt}]
         response = client.chat.completions.create(
-            model="llama3-70b-8192",  # or "mixtral-8x7b-32768", "gemma2-9b-it"
+            model=model,
             messages=messages,
             temperature=0.7,
             max_tokens=4096,
         )
         return response.choices[0].message.content
-        
     except Exception as e:
         err_text = str(e)
-        if "401" in err_text or "UNAUTHENTICATED" in err_text:
-            return "⚠️ **API key authentication failed.** Please check your API key and try again."
-        elif "429" in err_text:
-            return "⚠️ **Rate limit exceeded.** Please wait a moment and try again."
-        else:
-            return f"ERROR: {err_text}"
+        if "401" in err_text or "invalid_api_key" in err_text.lower() or "authentication" in err_text.lower():
+            return "⚠️ **API key authentication failed.** Please check your API key and try again. Using offline mode."
+        return f"ERROR: Please check your internet connection ({err_text})"
+
+def _tts_segment_bytes(client, text, voice):
+    resp = client.audio.speech.create(
+        model=GROQ_TTS_MODEL,
+        voice=voice,
+        input=text,
+        response_format="wav",
+    )
+    read_fn = getattr(resp, "read", None)
+    if callable(read_fn):
+        return read_fn()
+    return resp.content
 
 def generate_audio_overview_wav(script_text):
-    """Generate audio using gTTS (free, local)"""
+    """Turns a 'Host1: ... / Host2: ...' script into a single stitched two-voice WAV
+    using Groq's PlayAI TTS (one voice per host), replacing Gemini's native multi-speaker TTS."""
+    client = get_client()
+    if client is None:
+        return None, "No Groq API key found"
     try:
-        from gtts import gTTS
-        
-        if len(script_text) > 5000:
-            script_text = script_text[:5000]
-        
-        tts = gTTS(text=script_text, lang='en', slow=False)
-        audio_buffer = io.BytesIO()
-        tts.write_to_fp(audio_buffer)
-        audio_buffer.seek(0)
-        return audio_buffer.getvalue(), None
-    except ImportError:
-        return None, "gTTS not installed. Please install: pip install gTTS"
+        segments = []
+        for line in script_text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            match = re.match(r"^(Host1|Host2):\s*(.*)$", line)
+            if not match:
+                continue
+            speaker, text = match.group(1), match.group(2).strip()
+            if not text:
+                continue
+            voice = HOST_VOICES.get(speaker, "Fritz-PlayAI")
+            segments.append(_tts_segment_bytes(client, text, voice))
+
+        if not segments:
+            return None, "No speaker lines found in script"
+
+        params = None
+        frames = []
+        for seg in segments:
+            with wave.open(io.BytesIO(seg), "rb") as wf:
+                if params is None:
+                    params = wf.getparams()
+                frames.append(wf.readframes(wf.getnframes()))
+
+        buffer = io.BytesIO()
+        with wave.open(buffer, "wb") as out:
+            out.setparams(params)
+            for fr in frames:
+                out.writeframes(fr)
+        return buffer.getvalue(), None
     except Exception as e:
         return None, str(e)
+
+def parse_quiz_json(raw_text):
+    cleaned = raw_text.strip()
+    cleaned = re.sub(r"^```json", "", cleaned)
+    cleaned = re.sub(r"^```", "", cleaned)
+    cleaned = re.sub(r"```$", "", cleaned)
+    cleaned = cleaned.strip()
+    try:
+        return json.loads(cleaned)
+    except Exception:
+        pass
+    try:
+        return ast.literal_eval(cleaned)
+    except Exception:
+        pass
+    match = re.search(r"\[.*\]", cleaned, re.DOTALL)
+    if match:
+        block = match.group(0)
+        try:
+            return json.loads(block)
+        except Exception:
+            return ast.literal_eval(block)
+    raise ValueError("Could not parse quiz JSON")
 
 # ==================== OFFLINE CONTENT MANAGER ====================
 
@@ -591,29 +656,9 @@ class OfflineContentManager:
         self.offline_questions = self.load_offline_questions()
         self.offline_flashcards = self.load_offline_flashcards()
         self.offline_facts = self.load_offline_facts()
-        self._online_status = None
     
     def is_online(self):
-        """Check if we have a working Groq connection"""
-        if self._online_status is not None:
-            return self._online_status
-        
-        client = get_groq_client()
-        if client is None:
-            self._online_status = False
-            return False
-        
-        try:
-            test_response = client.chat.completions.create(
-                model="llama3-70b-8192",
-                messages=[{"role": "user", "content": "Hi"}],
-                max_tokens=5,
-            )
-            self._online_status = True
-            return True
-        except Exception:
-            self._online_status = False
-            return False
+        return get_client() is not None
     
     def load_offline_questions(self):
         return {
@@ -687,7 +732,7 @@ class OfflineContentManager:
             index = random.randint(0, len(self.offline_facts) - 1)
         return self.offline_facts[index % len(self.offline_facts)]
 
-# ==================== EXAM EXAMINER ====================
+# ==================== EXAM EXAMINER FEATURE ====================
 
 def show_exam_examiner():
     st.header("🤖 Interactive AI Exam Examiner Mode")
@@ -719,7 +764,7 @@ def show_exam_examiner():
                 offline_manager = OfflineContentManager()
                 if offline_manager.is_online():
                     prompt = build_exam_prompt(subject, topic, difficulty, num_questions, exam_type, content)
-                    raw_response = get_ai_response(prompt)
+                    raw_response = get_ai_response(prompt, task="complex")
                     try:
                         exam_data = parse_exam_json(raw_response)
                         st.session_state.current_exam = exam_data
@@ -871,9 +916,7 @@ def show_exam_examiner():
 def build_exam_prompt(subject, topic, difficulty, num_questions, exam_type, content):
     user_info = current_profile()
     return f"""
-    CRITICAL RULE: This request is for open-ended exam questions ONLY — produce nothing else. This content MUST strictly align with the Sri Lankan local school syllabus for the user's grade.
-
-    The user is {user_info.get('user_age', 13)} years old in {user_info.get('user_grade', 'Grade 8')} in Sri Lanka.
+    {_who_line()} {_syllabus_notice('open-ended exam questions')}
 
     You are an AI examiner. Create {num_questions} open-ended exam questions for this student studying {subject}.
     
@@ -900,11 +943,8 @@ def build_exam_prompt(subject, topic, difficulty, num_questions, exam_type, cont
     """
 
 def get_exam_feedback(question, student_answer, max_marks):
-    user_info = current_profile()
     prompt = f"""
-    CRITICAL RULE: This request is for exam answer feedback ONLY — produce nothing else. This content MUST strictly align with the Sri Lankan local school syllabus for the user's grade.
-
-    The user is {user_info.get('user_age', 13)} years old in {user_info.get('user_grade', 'Grade 8')} in Sri Lanka.
+    {_who_line()} {_syllabus_notice('exam answer feedback')}
 
     You are an AI examiner grading an exam answer.
     
@@ -923,7 +963,7 @@ def get_exam_feedback(question, student_answer, max_marks):
     
     Return as a JSON object with keys: "marks_awarded", "max_marks", "feedback", "improvement", "model_answer" (array)
     """
-    return get_ai_response(prompt)
+    return get_ai_response(prompt, task="complex")
 
 def parse_feedback_json(raw):
     try:
@@ -1274,11 +1314,9 @@ def generate_study_schedule(subject, chapters, exam_date, daily_hours, profile, 
         user_info = current_profile()
         
         prompt = f"""
-        CRITICAL RULE: This request is for a study schedule ONLY — produce nothing else. Pacing, topic breakdown, and difficulty MUST strictly match the Sri Lankan local school syllabus for their grade.
+        {_who_line()} {_syllabus_notice('a study schedule')}
 
-        The user is {user_info.get('user_age', 13)} years old in {user_info.get('user_grade', 'Grade 8')} in Sri Lanka.
-
-        Create a study schedule for this student studying {subject}.
+        Create a study schedule for this student studying {subject}. Pacing, topic breakdown, and difficulty MUST strictly match the Sri Lankan local school syllabus for their grade.
         
         Exam Date: {exam_date}
         Days Until Exam: {days_until}
@@ -1309,7 +1347,7 @@ def generate_study_schedule(subject, chapters, exam_date, daily_hours, profile, 
         - "total_reviews": number of planned reviews
         """
         
-        response = get_ai_response(prompt)
+        response = get_ai_response(prompt, task="complex")
         cleaned = re.sub(r"^```json|```$", "", response.strip())
         schedule = json.loads(cleaned)
         
@@ -1518,7 +1556,7 @@ def show_mcq_quiz_with_offline():
     if not is_online:
         st.warning("📶 Offline Mode Active - Using pre-loaded questions")
     else:
-        st.info("🌐 Online Mode - Groq generating questions")
+        st.info("🌐 Online Mode - AI generating questions")
     
     subject = st.text_input("Subject — e.g. Science, History, Maths:", value="General Knowledge")
     q_file = st.file_uploader("Upload Notes to test yourself (PDF, PNG, JPG):", type=["pdf", "png", "jpg", "jpeg"])
@@ -1545,8 +1583,7 @@ def show_mcq_quiz_with_offline():
                         subject, difficulty, num_questions,
                         combined_context if combined_context.strip() else "see attached image"
                     )
-                    # Groq ignores image, but we keep parameter for compatibility
-                    raw_json = get_ai_response(prompt)
+                    raw_json = get_ai_response(prompt, image=q_img, task="complex")
                     try:
                         st.session_state.quiz_list = parse_quiz_json(raw_json)
                         st.session_state.quiz_subject = subject
@@ -1650,7 +1687,7 @@ def show_pomodoro_with_soundscapes():
                         offline_manager = OfflineContentManager()
                         if offline_manager.is_online():
                             prompt = build_goal_tasks_prompt(goal)
-                            ai_tasks = get_ai_response(prompt).split("\n")
+                            ai_tasks = get_ai_response(prompt, task="instant").split("\n")
                         else:
                             ai_tasks = [
                                 f"Break down {goal} into parts",
@@ -1685,8 +1722,7 @@ def show_pomodoro_with_soundscapes():
         show_ambient_sound_player()
 
 def build_goal_tasks_prompt(goal):
-    user_info = current_profile()
-    return f"CRITICAL RULE: This request is for a study goal task breakdown ONLY — produce nothing else. The user is {user_info.get('user_age', 13)} years old in {user_info.get('user_grade', 'Grade 8')} in Sri Lanka. Break down this study goal into 4 short actionable tasks appropriate for this student's grade level, using the Sri Lankan school syllabus for context. Provide only the tasks, without numbers, one per line:\n{goal}"
+    return f"{_who_line()} {_syllabus_notice('a study goal task breakdown')} Break down this study goal into 4 short actionable tasks appropriate for this student's grade level, using the Sri Lankan school syllabus for context. Provide only the tasks, without numbers, one per line:\n{goal}"
 
 # ==================== THEME SYSTEM ====================
 
@@ -2234,6 +2270,74 @@ def apply_theme(theme=None, with_nav=True):
     div.st-key-quick_access_grid .stButton > button:hover {{
         transform: translateY(-4px) scale(1.02) !important;
     }}
+
+    /* ===== Floating AI Assistant button (#floating-ai-btn) ===== */
+    div.st-key-floating-ai-btn {{
+        position: fixed !important;
+        bottom: 24px;
+        right: 24px;
+        z-index: 999999;
+        width: auto !important;
+    }}
+    div.st-key-floating-ai-btn .stButton > button {{
+        border-radius: 999px !important;
+        padding: 0.85rem 1.5rem !important;
+        background: linear-gradient(135deg, var(--accent-1), var(--accent-2)) !important;
+        color: #FFFFFF !important;
+        border: none !important;
+        font-weight: 700 !important;
+        font-size: 0.95rem !important;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.5) !important;
+        transition: transform 0.2s ease !important;
+    }}
+    div.st-key-floating-ai-btn .stButton > button:hover {{
+        transform: translateY(-3px) scale(1.03) !important;
+    }}
+
+    /* ===== Leaderboard: podium & rankings ===== */
+    .podium-wrap {{
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+        gap: 1rem;
+        margin: 1.5rem 0 2rem 0;
+        flex-wrap: wrap;
+    }}
+    .podium-card {{
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        padding: 1.2rem 1rem;
+        text-align: center;
+        width: 160px;
+        backdrop-filter: blur(10px);
+        box-shadow: var(--shadow);
+    }}
+    .podium-card.rank-1 {{ order: 2; padding-top: 2.2rem; border: 1px solid rgba(255,215,0,0.6); box-shadow: 0 0 30px rgba(255,215,0,0.25); }}
+    .podium-card.rank-2 {{ order: 1; }}
+    .podium-card.rank-3 {{ order: 3; }}
+    .podium-medal {{ font-size: 2rem; }}
+    .podium-avatar {{ font-size: 2.4rem; margin: 0.3rem 0; }}
+    .podium-name {{ font-weight: 700; color: #F5F7FA; }}
+    .podium-xp {{ color: var(--accent-1); font-weight: 600; font-size: 0.9rem; }}
+    .rank-row {{
+        display: flex;
+        align-items: center;
+        gap: 0.9rem;
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 0.7rem 1rem;
+        margin-bottom: 0.6rem;
+    }}
+    .rank-num {{ font-weight: 700; width: 28px; text-align: center; color: var(--accent-2); }}
+    .rank-avatar {{ font-size: 1.5rem; }}
+    .rank-info {{ flex: 1; }}
+    .rank-name {{ font-weight: 600; color: #F5F7FA; }}
+    .rank-sub {{ font-size: 0.78rem; opacity: 0.7; }}
+    .rank-badges {{ display: flex; gap: 0.3rem; flex-wrap: wrap; max-width: 220px; }}
+    .rank-milestone {{ font-size: 0.72rem; background: var(--accent-soft); padding: 0.15rem 0.5rem; border-radius: 8px; }}
+    .rank-xp {{ font-weight: 700; color: var(--accent-1); min-width: 70px; text-align: right; }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -2611,6 +2715,38 @@ def render_sidebar():
 
 render_sidebar()
 
+# ==================== FLOATING AI ASSISTANT (FAB) ====================
+
+@st.dialog("💬 AI Study Assistant")
+def show_ai_assistant_dialog():
+    st.caption("Ask me anything about what you're studying — I respond fast, right where you are.")
+    if "floating_chat_history" not in st.session_state:
+        st.session_state.floating_chat_history = []
+
+    for msg in st.session_state.floating_chat_history:
+        with st.chat_message(msg["role"]):
+            st.write(msg["content"])
+
+    user_msg = st.chat_input("Ask a quick question...")
+    if user_msg:
+        st.session_state.floating_chat_history.append({"role": "user", "content": user_msg})
+        with st.chat_message("user"):
+            st.write(user_msg)
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking..."):
+                tutor_prompt = f"{_who_line()} Answer this student's question clearly, briefly, and in a friendly tutor tone: {user_msg}"
+                reply = get_ai_response(tutor_prompt, task="instant")
+            st.write(reply)
+        st.session_state.floating_chat_history.append({"role": "assistant", "content": reply})
+
+def render_floating_ai_assistant():
+    with st.container(key="floating-ai-btn"):
+        if st.button("💬 Ask AI Assistant", key="floating_ai_btn_trigger"):
+            st.session_state["_open_ai_dialog"] = True
+    if st.session_state.get("_open_ai_dialog"):
+        st.session_state["_open_ai_dialog"] = False
+        show_ai_assistant_dialog()
+
 # ==================== PAGE FUNCTIONS ====================
 
 def show_home():
@@ -2700,7 +2836,7 @@ def show_daily_facts():
         offline_manager = OfflineContentManager()
         if offline_manager.is_online():
             prompt = build_daily_fact_prompt()
-            st.session_state.daily_fact = get_ai_response(prompt)
+            st.session_state.daily_fact = get_ai_response(prompt, task="instant")
         else:
             st.session_state.daily_fact = offline_manager.get_offline_fact()
         
@@ -2710,8 +2846,7 @@ def show_daily_facts():
     st.info(st.session_state.daily_fact)
 
 def build_daily_fact_prompt():
-    user_info = current_profile()
-    return f"CRITICAL RULE: This request is for a daily fact ONLY — produce nothing else. The user is {user_info.get('user_age', 13)} years old in {user_info.get('user_grade', 'Grade 8')} in Sri Lanka. Tell ONLY one amazing, mind-blowing, yet easy-to-understand science or computer technology fact. Explain it in 3 clear bullet points."
+    return f"{_who_line()} Tell ONLY one amazing, mind-blowing, yet easy-to-understand science or computer technology fact. Explain it in 3 clear bullet points."
 
 def show_mindmap():
     st.header(t("🗺️ AI Mindmap Generator"))
@@ -2735,7 +2870,7 @@ def show_mindmap():
 
             prompt = build_mindmap_prompt(extracted_content)
 
-            mm_output = get_ai_response(prompt, image=img)  # image ignored by Groq
+            mm_output = get_ai_response(prompt, image=img, task="complex")
             ph.empty()
             st.success("Your Mindmap is Ready:")
             st.markdown(mm_output)
@@ -2748,8 +2883,7 @@ def show_mindmap():
             st.warning("Please provide a topic or upload a file to generate a mindmap.")
 
 def build_mindmap_prompt(content):
-    user_info = current_profile()
-    return f"CRITICAL RULE: This request is for a mindmap ONLY — produce nothing else. The user is {user_info.get('user_age', 13)} years old in {user_info.get('user_grade', 'Grade 8')} in Sri Lanka. Based on the following content, generate ONLY a clear, logical, structured text-based mindmap. Format it using clean nested markdown bullet points. Content: {content[:2000]}"
+    return f"{_who_line()} {_syllabus_notice('a mindmap')} Based on the following content, generate ONLY a clear, logical, structured text-based mindmap. Format it using clean nested markdown bullet points. Content: {content[:2000]}"
 
 def show_summarizer():
     st.header(t("📝 AI Note Summarizer"))
@@ -2771,7 +2905,7 @@ def show_summarizer():
             with st.spinner("Your note is being summarized by AI..."):
                 combined_text = user_note + "\n" + pdf_text
                 prompt = build_summarizer_prompt(combined_text)
-                output = get_ai_response(prompt, image=img)
+                output = get_ai_response(prompt, image=img, task="complex")
                 st.success("Here is the Summary:")
                 st.write(output)
                 
@@ -2788,8 +2922,7 @@ def show_summarizer():
             st.warning("Please provide a note or upload a file.")
 
 def build_summarizer_prompt(notes_text):
-    user_info = current_profile()
-    return f"CRITICAL RULE: This request is for a note summary ONLY — produce nothing else. The user is {user_info.get('user_age', 13)} years old in {user_info.get('user_grade', 'Grade 8')} in Sri Lanka. Summarize these notes clearly in bullet points ONLY. Notes: {notes_text[:2000]}."
+    return f"{_who_line()} {_syllabus_notice('a note summary')} Summarize these notes clearly in bullet points ONLY. Notes: {notes_text[:2000]}."
 
 def show_audio_overview():
     st.header(t("🎧 Audio Overview"))
@@ -2816,7 +2949,7 @@ def show_audio_overview():
             script_ph = st.empty()
             show_shimmer(script_ph, lines=4)
             script_prompt = build_audio_overview_script_prompt(combined_text if combined_text.strip() else "see attached image")
-            script_text = get_ai_response(script_prompt, image=img)
+            script_text = get_ai_response(script_prompt, image=img, task="complex")
             script_ph.empty()
 
             if script_text.startswith("ERROR") or script_text.startswith("⚠️"):
@@ -2843,8 +2976,7 @@ def show_audio_overview():
             st.warning("Please provide a note or upload a file.")
 
 def build_audio_overview_script_prompt(content):
-    user_info = current_profile()
-    return f"CRITICAL RULE: This request is for a two-host podcast-style audio overview script ONLY — produce nothing else. The user is {user_info.get('user_age', 13)} years old in {user_info.get('user_grade', 'Grade 8')} in Sri Lanka. Write ONLY a short, natural, conversational script between two hosts discussing and explaining the notes below. Format EVERY line as exactly 'Host1: <line>' or 'Host2: <line>'. Notes: {content[:2000]}"
+    return f"{_who_line()} {_syllabus_notice('a two-host podcast-style audio overview script')} Write ONLY a short, natural, conversational script between two hosts discussing and explaining the notes below. Format EVERY line as exactly 'Host1: <line>' or 'Host2: <line>'. Notes: {content[:2000]}"
 
 def show_math_solver():
     st.header(t("🧠 AI Math Problem Solver"))
@@ -2861,7 +2993,7 @@ def show_math_solver():
         if math_img or math_query:
             with st.spinner("Your question is being solved by AI..."):
                 prompt = build_math_prompt(math_query)
-                math_solution = get_ai_response(prompt, image=math_img)
+                math_solution = get_ai_response(prompt, image=math_img, task="complex")
                 st.success("Here is how to solve your question:")
                 st.write(math_solution)
 
@@ -2874,8 +3006,7 @@ def show_math_solver():
             st.warning("Please provide a question or image")
 
 def build_math_prompt(math_query):
-    user_info = current_profile()
-    return f"CRITICAL RULE: This request is for a step-by-step math solution ONLY — produce nothing else. The user is {user_info.get('user_age', 13)} years old in {user_info.get('user_grade', 'Grade 8')} in Sri Lanka. Solve ONLY this one math problem step-by-step: {math_query}. Act like a friendly tutor teaching a beginner."
+    return f"{_who_line()} {_syllabus_notice('a step-by-step math solution')} Solve ONLY this one math problem step-by-step: {math_query}. Act like a friendly tutor teaching a beginner."
 
 def show_flashcards():
     st.header(t("🗂️ Flashcards & Spaced Repetition"))
@@ -2945,7 +3076,7 @@ def show_flashcards():
                     offline_manager = OfflineContentManager()
                     if offline_manager.is_online():
                         prompt = build_flashcards_prompt(gen_subject, gen_topic, gen_count, gen_pdf_text)
-                        raw_json = get_ai_response(prompt)
+                        raw_json = get_ai_response(prompt, task="instant")
                         try:
                             parsed = parse_quiz_json(raw_json)
                             for item in parsed:
@@ -2991,10 +3122,9 @@ def show_flashcards():
                                 st.rerun()
 
 def build_flashcards_prompt(subject, topic, count, reference_content=""):
-    user_info = current_profile()
     topic_line = f"the topic '{topic}'" if topic else "the uploaded reference material"
     ref_block = f" Base the flashcards on this reference material: {reference_content[:3000]}" if reference_content else ""
-    return f"CRITICAL RULE: This request is for flashcards ONLY — produce nothing else. The user is {user_info.get('user_age', 13)} years old in {user_info.get('user_grade', 'Grade 8')} in Sri Lanka. Subject: {subject}. Create ONLY exactly {count} flashcards for {topic_line}.{ref_block} Return ONLY a raw JSON array of exactly {count} objects, each with keys 'front' and 'back'."
+    return f"{_who_line()} {_syllabus_notice('flashcards')} Subject: {subject}. Create ONLY exactly {count} flashcards for {topic_line}.{ref_block} Return ONLY a raw JSON array of exactly {count} objects, each with keys 'front' and 'back'."
 
 # ==================== POMODORO TIMER ====================
 
@@ -3201,8 +3331,129 @@ def show_analytics():
     else:
         empty_state("📝", "No exams taken yet — try the Exam Examiner feature!")
 
-# ==================== PAGE ROUTING ====================
+# ==================== LEADERBOARD & GAMIFICATION ====================
 
+LEADERBOARD_AVATARS = ["🦁", "🐼", "🦊", "🐯", "🐨", "🐸", "🦉", "🐵", "🐰", "🐺", "🦄", "🐳"]
+
+def leaderboard_avatar(username):
+    idx = int(hashlib.md5(username.encode("utf-8")).hexdigest(), 16) % len(LEADERBOARD_AVATARS)
+    return LEADERBOARD_AVATARS[idx]
+
+def compute_leaderboard_xp(profile):
+    """XP engine for the rankings page: +10 XP per correct quiz answer, +50 perfect-score bonus,
+    +2 XP per flashcard reviewed, +1 XP per focus (Pomodoro) minute."""
+    analytics = profile.get("analytics", {})
+    quiz_correct = analytics.get("total_score", 0)
+    perfect_quizzes = sum(
+        1 for q in profile.get("quiz_history", [])
+        if q.get("total", 0) > 0 and q.get("score") == q.get("total")
+    )
+    perfect_exams = analytics.get("perfect_exams", 0)
+    flashcards_reviewed = analytics.get("flashcards_reviewed", 0)
+    focus_minutes = sum(h.get("minutes", 0) for h in profile.get("pomodoro_history", []))
+
+    xp = (quiz_correct * 10) + ((perfect_quizzes + perfect_exams) * 50) + (flashcards_reviewed * 2) + (focus_minutes * 1)
+    return xp, {
+        "quiz_correct": quiz_correct,
+        "perfect_count": perfect_quizzes + perfect_exams,
+        "flashcards_reviewed": flashcards_reviewed,
+        "focus_minutes": focus_minutes,
+    }
+
+def leaderboard_milestones(profile, breakdown):
+    gam = profile.get("gamification", {})
+    milestones = []
+    if gam.get("streak", 0) >= 3:
+        milestones.append("🔥 Study Machine")
+    if profile.get("analytics", {}).get("quiz_taken", 0) >= 10:
+        milestones.append("⚡ Quiz Master")
+    if breakdown["focus_minutes"] >= 300:
+        milestones.append("⏳ Focus Champion")
+    if breakdown["flashcards_reviewed"] >= 50:
+        milestones.append("🧠 Card Crusher")
+    if breakdown["perfect_count"] >= 3:
+        milestones.append("💯 Perfectionist")
+    return milestones
+
+def build_leaderboard_rows():
+    users = st.session_state.all_data.get("users", {})
+    rows = []
+    for username, profile in users.items():
+        display_name = profile.get("user_name") or username
+        xp, breakdown = compute_leaderboard_xp(profile)
+        gam = profile.get("gamification", {})
+        rows.append({
+            "username": username,
+            "display_name": display_name,
+            "avatar": leaderboard_avatar(username),
+            "xp": xp,
+            "streak": gam.get("streak", 0),
+            "level": gam.get("level", 1),
+            "milestones": leaderboard_milestones(profile, breakdown),
+        })
+    rows.sort(key=lambda r: r["xp"], reverse=True)
+    return rows
+
+def render_podium(rows):
+    top3 = rows[:3]
+    if not top3:
+        return
+    medals = ["🥇", "🥈", "🥉"]
+    cards_html = ""
+    rank_classes = ["rank-1", "rank-2", "rank-3"]
+    for i, row in enumerate(top3):
+        cards_html += f"""
+<div class="podium-card {rank_classes[i]}">
+<div class="podium-medal">{medals[i]}</div>
+<div class="podium-avatar">{row['avatar']}</div>
+<div class="podium-name">{row['display_name']}</div>
+<div class="podium-xp">{row['xp']} XP</div>
+<div class="rank-sub">🔥 {row['streak']}-day streak · Lvl {row['level']}</div>
+</div>"""
+    st.markdown(f'<div class="podium-wrap">{cards_html}</div>', unsafe_allow_html=True)
+
+def render_rankings_table(rows):
+    for i, row in enumerate(rows):
+        badges_html = "".join(f'<span class="rank-milestone">{m}</span>' for m in row["milestones"])
+        st.markdown(f"""
+<div class="rank-row">
+<div class="rank-num">#{i + 1}</div>
+<div class="rank-avatar">{row['avatar']}</div>
+<div class="rank-info">
+<div class="rank-name">{row['display_name']}</div>
+<div class="rank-sub">🔥 {row['streak']}-day streak · Level {row['level']}</div>
+<div class="rank-badges">{badges_html}</div>
+</div>
+<div class="rank-xp">{row['xp']} XP</div>
+</div>
+""", unsafe_allow_html=True)
+
+def show_leaderboard():
+    st.header("🏆 Leaderboard & Gamification")
+    st.caption("Rankings are calculated from quiz answers, perfect scores, flashcard reviews, and focus minutes across all study profiles on this app.")
+
+    rows = build_leaderboard_rows()
+    if not rows:
+        empty_state("🏆", "No study activity yet — complete a quiz, review some flashcards, or run a Pomodoro session to appear on the leaderboard!")
+        return
+
+    render_podium(rows)
+    st.write("---")
+    st.subheader("📋 Full Rankings")
+    render_rankings_table(rows)
+
+    st.write("---")
+    with st.expander("ℹ️ How XP is calculated"):
+        st.markdown("""
+- **+10 XP** for every correct quiz answer
+- **+50 XP** bonus for every perfect quiz or exam score
+- **+2 XP** for every flashcard reviewed
+- **+1 XP** for every minute of focused (Pomodoro) study
+        """)
+
+# ==================== PAGE ROUTING - COMPACT DOCK ====================
+
+# Define PAGES dictionary FIRST
 PAGES = {
     "🏠": show_home,
     "💡": show_daily_facts,
@@ -3218,9 +3469,11 @@ PAGES = {
     "👨‍🏫": show_exam_examiner,
     "📦": show_study_pack_exporter,
     "📅": show_study_schedule_builder,
+    "🏆": show_leaderboard,
     "⚙️": show_settings,
 }
 
+# Navigation groups for display
 NAV_GROUPS = {
     "🏠": "Home",
     "📚 Study": {
@@ -3241,14 +3494,28 @@ NAV_GROUPS = {
         "📦": "Study Pack",
         "📅": "Schedule",
         "📊": "Analytics",
+        "🏆": "Leaderboard",
     },
     "⚙️": "Settings"
 }
 
+# Flatten navigation items
+NAV_ITEMS = []
+for key, value in NAV_GROUPS.items():
+    if isinstance(value, dict):
+        for sub_key, sub_label in value.items():
+            NAV_ITEMS.append((sub_key, sub_label))
+    else:
+        NAV_ITEMS.append((key, value))
+
+# Create a clean vertical nav bar docked to the right side of the screen
 def render_nav_bar():
+    """Render navigation as a floating vertical panel on the right"""
     current = st.session_state.get("nav_choice", "🏠")
+
     with st.container(key="right_navbar"):
         st.markdown('<div class="navbar-title">🧭 Navigate</div>', unsafe_allow_html=True)
+
         for key, value in NAV_GROUPS.items():
             if isinstance(value, dict):
                 st.markdown(f'<div class="navbar-group-label">{key}</div>', unsafe_allow_html=True)
@@ -3276,10 +3543,14 @@ def render_nav_bar():
                     st.markdown('<div class="navbar-divider"></div>', unsafe_allow_html=True)
 
 def render_sidebar_nav():
+    """Render navigation inside the sidebar — shown only on mobile/tablet widths via CSS,
+    since the floating right-side panel doesn't fit on smaller screens."""
     current = st.session_state.get("nav_choice", "🏠")
+
     with st.sidebar:
         with st.container(key="sidebar_navbar"):
             st.markdown('<div class="navbar-title">🧭 Navigate</div>', unsafe_allow_html=True)
+
             for key, value in NAV_GROUPS.items():
                 if isinstance(value, dict):
                     st.markdown(f'<div class="navbar-group-label">{key}</div>', unsafe_allow_html=True)
@@ -3316,3 +3587,6 @@ if page_key in PAGES:
     PAGES[page_key]()
 else:
     show_home()
+
+# Floating "Ask AI Assistant" button — available on every page
+render_floating_ai_assistant()
