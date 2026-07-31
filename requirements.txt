@@ -1,4 +1,4 @@
-streamlit>=1.36.0
+streamlit==1.38.0
 groq
 sqlmodel>=0.0.14
 pypdf>=4.0.0

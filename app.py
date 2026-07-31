@@ -2275,7 +2275,7 @@ def apply_theme(theme=None, with_nav=True):
     div.st-key-floating-ai-btn {{
         position: fixed !important;
         bottom: 24px;
-        right: 24px;
+        left: 24px;
         z-index: 999999;
         width: auto !important;
     }}
