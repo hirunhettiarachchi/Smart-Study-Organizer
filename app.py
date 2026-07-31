@@ -2211,16 +2211,23 @@ def apply_theme(theme=None, with_nav=True):
         text-align: center; font-size: 0.8rem; color: var(--muted-2);
         margin: 0.9rem 0; position: relative;
     }}
+    div.st-key-auth_card div[data-testid="stTabs"] {{
+        width: 100% !important;
+    }}
     div.st-key-auth_card div[data-testid="stTabs"] [data-baseweb="tab-list"] {{
         display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
         width: 100% !important;
         gap: 0.35rem; border-bottom: none;
         background: var(--track-bg); padding: 0.3rem;
         border-radius: 14px; margin-bottom: 1.3rem;
     }}
+    div.st-key-auth_card div[data-testid="stTabs"] button[data-baseweb="tab"],
     div.st-key-auth_card div[data-testid="stTabs"] [data-baseweb="tab"] {{
-        flex: 1 1 0 !important;
+        flex: 1 1 0% !important;
         width: auto !important;
+        max-width: none !important;
         min-width: 0 !important;
         display: flex !important;
         align-items: center !important;
@@ -2231,12 +2238,23 @@ def apply_theme(theme=None, with_nav=True):
         color: var(--muted) !important;
         font-weight: 600 !important;
         font-size: 0.92rem !important;
+        outline: none !important;
+        box-shadow: none !important;
+        border: none !important;
+    }}
+    div.st-key-auth_card div[data-testid="stTabs"] button[data-baseweb="tab"]:focus,
+    div.st-key-auth_card div[data-testid="stTabs"] button[data-baseweb="tab"]:focus-visible,
+    div.st-key-auth_card div[data-testid="stTabs"] [data-baseweb="tab"]:focus,
+    div.st-key-auth_card div[data-testid="stTabs"] [data-baseweb="tab"]:focus-visible {{
+        outline: none !important;
+        box-shadow: none !important;
     }}
     div.st-key-auth_card div[data-testid="stTabs"] [aria-selected="true"] {{
         background: linear-gradient(135deg, var(--accent-1), var(--accent-2)) !important;
         color: #FFFFFF !important;
     }}
-    div.st-key-auth_card div[data-testid="stTabs"] [data-baseweb="tab"] p {{
+    div.st-key-auth_card div[data-testid="stTabs"] [data-baseweb="tab"] p,
+    div.st-key-auth_card div[data-testid="stTabs"] [data-baseweb="tab"] div {{
         color: inherit !important;
         font-weight: inherit !important;
         margin: 0 !important;
