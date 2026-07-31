@@ -2214,6 +2214,15 @@ def apply_theme(theme=None, with_nav=True):
     div.st-key-auth_card div[data-testid="stTabs"] {{
         width: 100% !important;
     }}
+    /* Kill any focus ring anywhere inside the tab bar, regardless of markup version */
+    div.st-key-auth_card div[data-testid="stTabs"] *,
+    div.st-key-auth_card div[data-testid="stTabs"] *:focus,
+    div.st-key-auth_card div[data-testid="stTabs"] *:focus-visible,
+    div.st-key-auth_card div[data-testid="stTabs"] *:active {{
+        outline: none !important;
+        box-shadow: none !important;
+    }}
+    div.st-key-auth_card div[data-testid="stTabs"] [role="tablist"],
     div.st-key-auth_card div[data-testid="stTabs"] [data-baseweb="tab-list"] {{
         display: flex !important;
         flex-direction: row !important;
@@ -2223,6 +2232,7 @@ def apply_theme(theme=None, with_nav=True):
         background: var(--track-bg); padding: 0.3rem;
         border-radius: 14px; margin-bottom: 1.3rem;
     }}
+    div.st-key-auth_card div[data-testid="stTabs"] [role="tab"],
     div.st-key-auth_card div[data-testid="stTabs"] button[data-baseweb="tab"],
     div.st-key-auth_card div[data-testid="stTabs"] [data-baseweb="tab"] {{
         flex: 1 1 0% !important;
@@ -2235,24 +2245,20 @@ def apply_theme(theme=None, with_nav=True):
         gap: 0.35rem;
         border-radius: 10px !important;
         padding: 0.6rem 0.5rem !important;
+        margin: 0 !important;
         color: var(--muted) !important;
         font-weight: 600 !important;
         font-size: 0.92rem !important;
-        outline: none !important;
-        box-shadow: none !important;
         border: none !important;
-    }}
-    div.st-key-auth_card div[data-testid="stTabs"] button[data-baseweb="tab"]:focus,
-    div.st-key-auth_card div[data-testid="stTabs"] button[data-baseweb="tab"]:focus-visible,
-    div.st-key-auth_card div[data-testid="stTabs"] [data-baseweb="tab"]:focus,
-    div.st-key-auth_card div[data-testid="stTabs"] [data-baseweb="tab"]:focus-visible {{
-        outline: none !important;
-        box-shadow: none !important;
+        background: transparent;
     }}
     div.st-key-auth_card div[data-testid="stTabs"] [aria-selected="true"] {{
         background: linear-gradient(135deg, var(--accent-1), var(--accent-2)) !important;
         color: #FFFFFF !important;
     }}
+    div.st-key-auth_card div[data-testid="stTabs"] [role="tab"] p,
+    div.st-key-auth_card div[data-testid="stTabs"] [role="tab"] div,
+    div.st-key-auth_card div[data-testid="stTabs"] [role="tab"] span,
     div.st-key-auth_card div[data-testid="stTabs"] [data-baseweb="tab"] p,
     div.st-key-auth_card div[data-testid="stTabs"] [data-baseweb="tab"] div {{
         color: inherit !important;
