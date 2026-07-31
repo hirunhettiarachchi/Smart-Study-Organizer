@@ -582,8 +582,47 @@ def _tts_segment_bytes(client, text, voice):
     )
     read_fn = getattr(resp, "read", None)
     if callable(read_fn):
-        return read_fn()
-    return resp.content
+        data = read_fn()
+    else:
+        data = resp.content
+    if not data or not data.startswith(b"RIFF"):
+        raise ValueError(
+            "Groq did not return a valid WAV file. This usually means the "
+            "PlayAI TTS model terms haven't been accepted yet for this API key — "
+            "accept them at console.groq.com under the model's page, then try again."
+        )
+    return data
+
+def _parse_host_lines(script_text):
+    """Extract (speaker, text) pairs from a script. Tolerates markdown emphasis
+    (**Host1:**), extra spacing ('Host 1 :'), and case variants."""
+    segments = []
+    line_pattern = re.compile(
+        r"^[\*_\s\"'>-]*Host\s*([12])[\*_\s]*:\s*(.+?)[\*_\s]*$",
+        re.IGNORECASE,
+    )
+    for raw_line in script_text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        match = line_pattern.match(line)
+        if not match:
+            continue
+        speaker = f"Host{match.group(1)}"
+        text = match.group(2).strip().strip("*_\"'")
+        if text:
+            segments.append((speaker, text))
+
+    if segments:
+        return segments
+
+    # Fallback: the model didn't follow the "HostN:" format at all — split the
+    # script into sentences and alternate speakers so audio can still be produced.
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", script_text.strip()) if s.strip()]
+    for i, sentence in enumerate(sentences):
+        speaker = "Host1" if i % 2 == 0 else "Host2"
+        segments.append((speaker, sentence))
+    return segments
 
 def generate_audio_overview_wav(script_text):
     """Turns a 'Host1: ... / Host2: ...' script into a single stitched two-voice WAV
@@ -592,30 +631,28 @@ def generate_audio_overview_wav(script_text):
     if client is None:
         return None, "No Groq API key found"
     try:
-        segments = []
-        for line in script_text.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            match = re.match(r"^(Host1|Host2):\s*(.*)$", line)
-            if not match:
-                continue
-            speaker, text = match.group(1), match.group(2).strip()
-            if not text:
-                continue
-            voice = HOST_VOICES.get(speaker, "Fritz-PlayAI")
-            segments.append(_tts_segment_bytes(client, text, voice))
-
-        if not segments:
+        host_lines = _parse_host_lines(script_text)
+        if not host_lines:
             return None, "No speaker lines found in script"
+
+        segments = []
+        for speaker, text in host_lines:
+            voice = HOST_VOICES.get(speaker, "Fritz-PlayAI")
+            try:
+                segments.append(_tts_segment_bytes(client, text, voice))
+            except Exception as seg_err:
+                return None, f"{speaker} line failed ({text[:40]}...): {seg_err}"
 
         params = None
         frames = []
         for seg in segments:
-            with wave.open(io.BytesIO(seg), "rb") as wf:
-                if params is None:
-                    params = wf.getparams()
-                frames.append(wf.readframes(wf.getnframes()))
+            try:
+                with wave.open(io.BytesIO(seg), "rb") as wf:
+                    if params is None:
+                        params = wf.getparams()
+                    frames.append(wf.readframes(wf.getnframes()))
+            except wave.Error as wav_err:
+                return None, f"Received unreadable audio from Groq TTS: {wav_err}"
 
         buffer = io.BytesIO()
         with wave.open(buffer, "wb") as out:
